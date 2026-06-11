@@ -1,0 +1,3463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deployment Comparator — ADO vs Kubernetes</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  .mono { font-family: 'JetBrains Mono', 'Consolas', monospace; }
+
+  /* Row status stripes */
+  .row-diff   { background: linear-gradient(90deg, #fef2f2 0px, #fef2f2 4px, #fff 4px); }
+  .row-miss   { background: linear-gradient(90deg, #fffbeb 0px, #fffbeb 4px, #fff 4px); }
+  .row-match  { background: linear-gradient(90deg, #f0fdf4 0px, #f0fdf4 4px, #fff 4px); }
+  tr.row-diff:hover td  { background: rgba(239,68,68,.05); }
+  tr.row-miss:hover td  { background: rgba(245,158,11,.05); }
+  tr.row-match:hover td { background: rgba(34,197,94,.05); }
+
+  /* Badges */
+  .badge { display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:9999px;font-size:11px;font-weight:600;letter-spacing:.02em; }
+  .badge-diff    { background:#fef2f2;color:#dc2626;border:1px solid #fecaca; }
+  .badge-match   { background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0; }
+  .badge-missing { background:#fffbeb;color:#b45309;border:1px solid #fde68a; }
+
+  /* Spinner */
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spin { animation:spin .9s linear infinite; }
+
+  /* Fade-in */
+  @keyframes fadeUp { from { opacity:0;transform:translateY(10px); } to { opacity:1;transform:translateY(0); } }
+  .fade-up { animation:fadeUp .35s ease both; }
+
+  /* Panel slide transition */
+  @keyframes slideIn { from { opacity:0;transform:translateX(8px); } to { opacity:1;transform:translateX(0); } }
+  .slide-in { animation:slideIn .22s ease both; }
+
+  /* Code textarea */
+  .code-area {
+    font-family:'JetBrains Mono','Consolas',monospace;
+    font-size:11.5px;
+    line-height:1.6;
+    resize:vertical;
+  }
+
+  /* Manual branch slot */
+  .branch-slot {
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    padding:12px 14px;
+    background:#f8fafc;
+    transition:border-color .15s;
+  }
+  .branch-slot:focus-within { border-color:#a5b4fc; background:#fff; }
+  .branch-slot.slot-loaded { border-color:#86efac; background:#f0fdf4; }
+  .slot-status { font-size:11px; }
+
+  /* Branch pill */
+  .branch-pill {
+    display:inline-block;
+    padding:1px 7px;
+    border-radius:4px;
+    font-size:10px;
+    font-weight:500;
+    background:#eff6ff;
+    color:#2563eb;
+    border:1px solid #bfdbfe;
+    font-family:'JetBrains Mono',monospace;
+    white-space:nowrap;
+  }
+
+  /* Image tag highlight */
+  .img-tag { color:#4f46e5;font-weight:700; }
+  .img-tag-diff { color:#dc2626;font-weight:700; }
+  .img-null { color:#94a3b8;font-style:italic;font-size:11px; }
+
+  /* Sticky section header in table */
+  .section-sep td {
+    padding:6px 20px;
+    background:#f8fafc;
+    font-size:10.5px;
+    font-weight:700;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:#94a3b8;
+    border-top:1px solid #e2e8f0;
+    border-bottom:1px solid #e2e8f0;
+  }
+
+  /* ── Mode toggle ── */
+  .mode-toggle {
+    display:inline-flex;
+    background:#f1f5f9;
+    border-radius:8px;
+    padding:3px;
+    gap:2px;
+  }
+  .mode-btn {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:5px 13px;
+    border-radius:6px;
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+    transition:all .18s ease;
+    border:none;
+    background:transparent;
+    color:#64748b;
+    white-space:nowrap;
+  }
+  .mode-btn.active {
+    background:#fff;
+    color:#1e40af;
+    box-shadow:0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.07);
+  }
+  .mode-btn:hover:not(.active) { color:#334155; background:rgba(255,255,255,.6); }
+
+  /* ── File upload cards (manual mode) ── */
+  .upload-card {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:10px 14px;
+    border-radius:10px;
+    border:1.5px dashed #cbd5e1;
+    background:#f8fafc;
+    transition:all .15s ease;
+  }
+  .upload-card.has-file {
+    border-style:solid;
+    border-color:#86efac;
+    background:#f0fdf4;
+  }
+  .upload-card.has-file .upload-hint { display:none; }
+  .upload-card:not(.has-file) .file-info { display:none; }
+
+  .upload-zone {
+    flex:1;
+    cursor:pointer;
+    min-width:0;
+  }
+  .upload-zone input[type=file] { display:none; }
+
+  .upload-dropzone {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 10px;
+    border-radius:7px;
+    border:1px dashed #94a3b8;
+    background:white;
+    color:#94a3b8;
+    font-size:11.5px;
+    transition:all .15s;
+  }
+  .upload-zone:hover .upload-dropzone,
+  .upload-card.dragover .upload-dropzone {
+    border-color:#6366f1;
+    color:#6366f1;
+    background:#eef2ff;
+  }
+  .upload-card.dragover { border-color:#6366f1; background:#eef2ff; }
+
+  .file-info {
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:11.5px;
+    color:#16a34a;
+    font-weight:500;
+    min-width:0;
+    overflow:hidden;
+  }
+  .file-name {
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+  }
+
+  .clear-btn {
+    flex-shrink:0;
+    width:20px;height:20px;
+    border-radius:50%;
+    background:#fecaca;
+    color:#dc2626;
+    border:none;
+    cursor:pointer;
+    font-size:11px;
+    display:flex;align-items:center;justify-content:center;
+    transition:background .12s;
+  }
+  .clear-btn:hover { background:#fca5a5; }
+
+  /* ── Sidebar nav ── */
+  .nav-item { color:#64748b; transition:all .15s ease; }
+  .nav-item:hover:not(.nav-active) { background:#f1f5f9; color:#334155; }
+  .nav-active { background:#eff6ff !important; color:#1e40af !important; }
+
+  /* Focus ring */
+  input:focus, textarea:focus, select:focus {
+    outline:none;
+    box-shadow:0 0 0 3px rgba(99,102,241,.18);
+    border-color:#6366f1 !important;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#cbd5e1;border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:#94a3b8; }
+</style>
+</head>
+
+<body class="bg-slate-100 min-h-screen">
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-20">
+  <div class="max-w-screen-xl mx-auto px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow flex items-center justify-center flex-shrink-0">
+        <svg width="19" height="19" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2.2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-base font-semibold text-slate-900 leading-tight">Deployment Comparator</h1>
+        <p class="text-xs text-slate-400 leading-none mt-0.5">Azure DevOps deploy.txt &nbsp;↔&nbsp; Kubernetes kube.txt</p>
+      </div>
+    </div>
+    <span id="lastRunBadge" class="hidden text-xs text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200"></span>
+  </div>
+</header>
+
+
+<!-- ═══════════════════════ MAIN ═══════════════════════ -->
+<main>
+<div class="max-w-screen-xl mx-auto px-6 py-7 flex gap-6 items-start">
+
+  <!-- ══ Sidebar ══ -->
+  <nav class="w-52 flex-shrink-0 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden sticky top-[68px]">
+    <div class="px-4 py-3 border-b border-slate-100">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Comparisons</p>
+    </div>
+    <div class="p-2 space-y-0.5">
+      <button id="navImages" onclick="setPage('images')"
+        class="nav-item nav-active w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        Image Comparison
+      </button>
+      <button id="navReplicas" onclick="setPage('replicas')"
+        class="nav-item w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        Replica Comparison
+      </button>
+      <button id="navConfigmaps" onclick="setPage('configmaps')"
+        class="nav-item w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+        </svg>
+        ConfigMap Compare
+      </button>
+      <button id="navHelm" onclick="setPage('helm')"
+        class="nav-item w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        Branch Compare
+      </button>
+    </div>
+  </nav>
+
+  <!-- ══ Content pages ══ -->
+  <div class="flex-1 min-w-0">
+
+  <!-- ════════ IMAGE COMPARISON PAGE ════════ -->
+  <div id="pageImages" class="space-y-6">
+
+  <!-- ── Config grid ── -->
+  <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+
+    <!-- ══ Azure DevOps Panel (3 cols) ══ -->
+    <div class="xl:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+      <!-- Panel header with mode toggle -->
+      <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#3b82f6" stroke-width="2.2">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-sm font-semibold text-slate-800 leading-tight">deploy.txt Source</h2>
+              <p id="adoSubtitle" class="text-xs text-slate-400">Fetched via Azure DevOps REST API</p>
+            </div>
+          </div>
+
+          <!-- ─ Mode toggle ─ -->
+          <div class="mode-toggle flex-shrink-0">
+            <button id="btnOnline" class="mode-btn active" onclick="setMode('online')">
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+              </svg>
+              Online
+            </button>
+            <button id="btnManual" class="mode-btn" onclick="setMode('manual')">
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+              </svg>
+              Manual Upload
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─ ONLINE panel ─ -->
+      <div id="onlinePanel" class="p-6 space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Organization URL</label>
+            <input id="orgUrl" type="text" placeholder="https://dev.azure.com/myorg"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Project</label>
+            <input id="project" type="text" placeholder="my-project"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Repository</label>
+            <input id="repoName" type="text" placeholder="my-repo"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">File Path</label>
+            <input id="filePath" type="text" placeholder="/deploy.txt" value="/deploy.txt"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+            Branches
+            <span class="normal-case font-normal text-slate-400 ml-1">— comma-separated, up to 3</span>
+          </label>
+          <input id="branches" type="text" placeholder="main, release/1.0, feature/hotfix"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+          <p class="text-xs text-slate-400 mt-1.5">Services spanning multiple branches are aggregated automatically.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+            Personal Access Token (PAT)
+            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" stroke-width="2.5">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+          </label>
+          <input id="pat" type="password" placeholder="••••••••••••••••••••••••••••••••••••••••••"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono tracking-widest">
+          <p class="text-xs text-slate-400 mt-1.5">Kept in-memory only — never saved to disk or localStorage.</p>
+        </div>
+      </div>
+
+      <!-- ─ MANUAL panel ─ -->
+      <div id="manualPanel" class="hidden p-6 space-y-4 slide-in">
+
+        <!-- Branches input (shared concept, shown in manual too) -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+            Branch Labels
+            <span class="normal-case font-normal text-slate-400 ml-1">— one label per file you'll upload</span>
+          </label>
+          <input id="branchesManual" type="text" placeholder="main, release/1.0, feature/hotfix"
+            oninput="debouncedSyncSlots()"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+          <p class="text-xs text-slate-400 mt-1.5">Enter branch names, then upload a deploy.txt file for each one below.</p>
+        </div>
+
+        <!-- File upload cards — generated dynamically -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">
+            Upload Files
+            <span id="manualUploadCount" class="normal-case font-normal text-slate-400 ml-1"></span>
+          </label>
+
+          <div id="manualSlots" class="space-y-2.5">
+            <!-- Placeholder when no branches entered -->
+            <div id="manualPlaceholder" class="flex items-center gap-2 p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <p class="text-xs text-slate-400">Enter branch labels above to generate upload slots.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Clear all -->
+        <div class="flex justify-end">
+          <button onclick="clearAllManualFiles()"
+            class="text-xs text-slate-400 hover:text-red-500 px-2.5 py-1 rounded-md border border-slate-200 hover:border-red-200 transition-all">
+            Clear all files
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /ADO panel -->
+
+
+    <!-- ══ Kube.txt Panel (2 cols) ══ -->
+    <div class="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+
+      <!-- Panel header with Paste / Live toggle -->
+      <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-green-50 to-white">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#22c55e" stroke-width="2.2">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-sm font-semibold text-slate-800 leading-tight">Kubernetes State</h2>
+              <p id="kubeSubtitle" class="text-xs text-slate-400">Paste or upload kubectl output</p>
+            </div>
+          </div>
+          <!-- Paste | Live toggle -->
+          <div class="mode-toggle flex-shrink-0">
+            <button id="btnKubePaste" class="mode-btn active" onclick="setKubeMode('paste')">
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Paste
+            </button>
+            <button id="btnKubeLive" class="mode-btn" onclick="setKubeMode('live')">
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                <circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round"
+                  d="M12 2v2m0 16v2M2 12h2m16 0h2m-3.5-7.5-1.5 1.5M7 7 5.5 5.5m12 12-1.5-1.5M7 17l-1.5 1.5"/>
+              </svg>
+              Live
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─ PASTE panel ─ -->
+      <div id="kubePastePanel" class="p-6 flex-1 flex flex-col space-y-3">
+        <div class="flex justify-end gap-1.5">
+          <button onclick="loadSampleKube()"
+            class="text-xs text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all">
+            Sample
+          </button>
+          <label class="text-xs text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer">
+            Upload
+            <input type="file" accept=".txt,.log" onchange="handleKubeUpload(event)" class="sr-only">
+          </label>
+          <button onclick="clearKube()" title="Clear"
+            class="text-xs text-slate-400 hover:text-red-500 px-2 py-1 rounded-md border border-slate-200 hover:border-red-200 transition-all">
+            ✕
+          </button>
+        </div>
+        <textarea id="kubeContent" rows="12"
+          class="code-area flex-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:bg-white transition-colors"
+          placeholder="Paste kubectl get deployments output here...
+
+NAME        READY  UP-TO-DATE  AVAILABLE  AGE  CONTAINERS  IMAGES                       SELECTOR
+service-a   3/3    3           3          14d  service-a   registry.io/svc-a:v1.2.0     app=service-a
+service-b   2/2    2           2          7d   service-b   registry.io/svc-b:v0.9.1     app=service-b"></textarea>
+        <p class="text-xs text-slate-400 mono">kubectl get deployments -n &lt;namespace&gt; -o wide</p>
+      </div>
+
+      <!-- ─ LIVE panel ─ -->
+      <div id="kubeLivePanel" class="hidden p-6 flex-1 flex flex-col space-y-4 slide-in">
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Environment</label>
+          <select id="kubeEnv" onchange="onEnvChange()"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors cursor-pointer">
+            <option value="SIT">SIT</option>
+            <option value="SIT2">SIT2</option>
+            <option value="PRD">PRD</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+            Namespace
+            <span class="normal-case font-normal text-slate-400 ml-1">— edits are saved per environment</span>
+          </label>
+          <input id="kubeNamespace" type="text" placeholder="my-namespace"
+            oninput="saveKubeNs()"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+        </div>
+
+        <!-- Proxy hint -->
+        <div class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 flex items-start gap-2 mt-auto">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#3b82f6" stroke-width="2" class="mt-0.5 flex-shrink-0">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            Run <code class="bg-white px-1 py-0.5 rounded border border-slate-200 font-mono text-[11px]">kubectl proxy --port=8001</code>
+            before clicking Compare.
+          </p>
+        </div>
+
+      </div>
+
+    </div><!-- /kube panel -->
+  </div><!-- /grid -->
+
+
+  <!-- ── Compare Button ── -->
+  <div class="flex items-center justify-center gap-4">
+    <button id="compareBtn" onclick="runComparison()"
+      class="px-9 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-lg active:scale-95 transition-all duration-150 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-blue-600">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      <span id="btnText">Fetch &amp; Compare</span>
+    </button>
+  </div>
+
+
+  <!-- ── Loading ── -->
+  <div id="loadingState" class="hidden text-center py-10">
+    <svg class="spin inline-block w-7 h-7 text-blue-500 mb-3" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+      <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+    </svg>
+    <p id="loadingMsg" class="text-sm font-medium text-slate-700">Processing…</p>
+    <p id="loadingDetail" class="text-xs text-slate-400 mt-1"></p>
+  </div>
+
+
+  <!-- ── Error / Warning Banner ── -->
+  <div id="errorBanner" class="hidden rounded-xl border px-5 py-4 flex items-start gap-3">
+    <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <div>
+      <p id="errorTitle" class="text-sm font-semibold"></p>
+      <pre id="errorMsg" class="text-xs mt-1 whitespace-pre-wrap"></pre>
+    </div>
+  </div>
+
+
+  <!-- ── Results ── -->
+  <div id="results" class="hidden fade-up space-y-5">
+
+    <!-- Summary cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Total Services</p>
+        <p id="statTotal" class="text-3xl font-bold text-slate-800 mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl border border-red-100 shadow-sm px-5 py-4">
+        <p class="text-xs font-semibold text-red-400 uppercase tracking-wide">Version Diffs</p>
+        <p id="statDiff" class="text-3xl font-bold text-red-600 mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl border border-amber-100 shadow-sm px-5 py-4">
+        <p class="text-xs font-semibold text-amber-400 uppercase tracking-wide">Missing</p>
+        <p id="statMiss" class="text-3xl font-bold text-amber-500 mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl border border-green-100 shadow-sm px-5 py-4">
+        <p class="text-xs font-semibold text-green-400 uppercase tracking-wide">Matching</p>
+        <p id="statMatch" class="text-3xl font-bold text-green-600 mt-1">—</p>
+      </div>
+    </div>
+
+    <!-- Results table -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-slate-800">Comparison Details</h3>
+        <div class="flex items-center gap-4 text-xs text-slate-500">
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm bg-red-400"></span>Diff
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400"></span>Missing
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm bg-green-400"></span>Match
+          </span>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" id="resultsTable">
+          <thead id="resultsHead"></thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+
+  </div><!-- /pageImages -->
+
+
+  <!-- ════════ REPLICA COMPARISON PAGE ════════ -->
+  <div id="pageReplicas" class="hidden space-y-6">
+
+    <!-- Source grid -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+      <!-- Source A — always file/paste -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-white">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#7c3aed" stroke-width="2.2">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="text-sm font-semibold text-slate-800 leading-tight">Source A</h2>
+                <p class="text-xs text-slate-400">Paste or upload replica snapshot</p>
+              </div>
+            </div>
+            <div class="flex gap-1.5">
+              <label class="text-xs text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer">
+                Upload<input type="file" accept=".txt,.log" onchange="handleReplicaUpload(event,'A')" class="sr-only">
+              </label>
+              <button onclick="clearReplica('A')" class="text-xs text-slate-400 hover:text-red-500 px-2 py-1 rounded-md border border-slate-200 hover:border-red-200 transition-all">✕</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-6 flex-1 flex flex-col">
+          <textarea id="replicaContentA" rows="13"
+            class="code-area flex-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:bg-white transition-colors"
+            placeholder="Paste output of:
+kubectl get deployments --all-namespaces \
+  -o custom-columns=\
+'NAMESPACE:.metadata.namespace,\
+NAME:.metadata.name,\
+DESIRED:.spec.replicas,\
+READY:.status.readyReplicas,\
+AVAILABLE:.status.availableReplicas'"></textarea>
+        </div>
+      </div>
+
+      <!-- Source B — File | Live toggle -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-teal-50 to-white">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#0d9488" stroke-width="2.2">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="text-sm font-semibold text-slate-800 leading-tight">Source B</h2>
+                <p id="replicaBSubtitle" class="text-xs text-slate-400">Paste or upload replica snapshot</p>
+              </div>
+            </div>
+            <div class="mode-toggle flex-shrink-0">
+              <button id="btnReplicaFile" class="mode-btn active" onclick="setReplicaMode('file')">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                File
+              </button>
+              <button id="btnReplicaLive" class="mode-btn" onclick="setReplicaMode('live')">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 2v2m0 16v2M2 12h2m16 0h2m-3.5-7.5-1.5 1.5M7 7 5.5 5.5m12 12-1.5-1.5M7 17l-1.5 1.5"/>
+                </svg>
+                Live
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- File panel -->
+        <div id="replicaBFilePanel" class="p-6 flex-1 flex flex-col space-y-3">
+          <div class="flex justify-end gap-1.5">
+            <label class="text-xs text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer">
+              Upload<input type="file" accept=".txt,.log" onchange="handleReplicaUpload(event,'B')" class="sr-only">
+            </label>
+            <button onclick="clearReplica('B')" class="text-xs text-slate-400 hover:text-red-500 px-2 py-1 rounded-md border border-slate-200 hover:border-red-200 transition-all">✕</button>
+          </div>
+          <textarea id="replicaContentB" rows="12"
+            class="code-area flex-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:bg-white transition-colors"
+            placeholder="Paste output of:
+kubectl get deployments --all-namespaces \
+  -o custom-columns=\
+'NAMESPACE:.metadata.namespace,\
+NAME:.metadata.name,\
+DESIRED:.spec.replicas,\
+READY:.status.readyReplicas,\
+AVAILABLE:.status.availableReplicas'"></textarea>
+        </div>
+
+        <!-- Live panel -->
+        <div id="replicaBLivePanel" class="hidden p-6 flex-1 flex flex-col space-y-4 slide-in">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Environment</label>
+            <select id="replicaEnv" onchange="onReplicaEnvChange()"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors cursor-pointer">
+              <option value="SIT">SIT</option>
+              <option value="SIT2">SIT2</option>
+              <option value="PRD">PRD</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+              Namespace
+              <span class="normal-case font-normal text-slate-400 ml-1">— leave blank for all namespaces</span>
+            </label>
+            <input id="replicaNamespace" type="text" placeholder="leave blank for all namespaces"
+              oninput="saveReplicaNs()"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+          </div>
+          <div class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 flex items-start gap-2 mt-auto">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#3b82f6" stroke-width="2" class="mt-0.5 flex-shrink-0">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              Run <code class="bg-white px-1 py-0.5 rounded border border-slate-200 font-mono text-[11px]">kubectl proxy --port=8001</code> before comparing.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /source grid -->
+
+    <!-- Compare button -->
+    <div class="flex items-center justify-center">
+      <button id="replicaCompareBtn" onclick="runReplicaComparison()"
+        class="px-9 py-3 bg-gradient-to-r from-violet-600 to-teal-600 hover:from-violet-700 hover:to-teal-700 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-lg active:scale-95 transition-all duration-150 flex items-center gap-2.5">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        Compare Replicas
+      </button>
+    </div>
+
+    <!-- Loading -->
+    <div id="replicaLoadingState" class="hidden text-center py-10">
+      <svg class="spin inline-block w-7 h-7 text-violet-500 mb-3" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <p id="replicaLoadingMsg" class="text-sm font-medium text-slate-700">Processing…</p>
+    </div>
+
+    <!-- Error banner -->
+    <div id="replicaErrorBanner" class="hidden rounded-xl border px-5 py-4 flex items-start gap-3">
+      <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <div>
+        <p id="replicaErrorTitle" class="text-sm font-semibold"></p>
+        <pre id="replicaErrorMsg" class="text-xs mt-1 whitespace-pre-wrap"></pre>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="replicaResults" class="hidden fade-up space-y-5">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Total</p>
+          <p id="rStatTotal" class="text-3xl font-bold text-slate-800 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-red-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-red-400 uppercase tracking-wide">Replica Diffs</p>
+          <p id="rStatDiff" class="text-3xl font-bold text-red-600 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-amber-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-amber-400 uppercase tracking-wide">Missing</p>
+          <p id="rStatMiss" class="text-3xl font-bold text-amber-500 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-green-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-green-400 uppercase tracking-wide">Matching</p>
+          <p id="rStatMatch" class="text-3xl font-bold text-green-600 mt-1">—</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-800">Replica Comparison Details</h3>
+          <div class="flex items-center gap-4 text-xs text-slate-500">
+            <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-red-400"></span>Diff</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400"></span>Missing</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-green-400"></span>Match</span>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-100 text-left">
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide" rowspan="2">Namespace</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide" rowspan="2">Deployment</th>
+                <th id="rLabelA" class="px-4 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide text-center border-l border-slate-200" colspan="3">Source A</th>
+                <th id="rLabelB" class="px-4 py-3 text-xs font-semibold text-teal-500 uppercase tracking-wide text-center border-l border-slate-200" colspan="3">Source B</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-center w-28" rowspan="2">Status</th>
+              </tr>
+              <tr class="bg-slate-50 border-b border-slate-200 text-center text-xs text-slate-400 font-medium">
+                <td class="px-4 py-2 border-l border-slate-200">Desired</td>
+                <td class="px-4 py-2">Ready</td>
+                <td class="px-4 py-2">Available</td>
+                <td class="px-4 py-2 border-l border-slate-200">Desired</td>
+                <td class="px-4 py-2">Ready</td>
+                <td class="px-4 py-2">Available</td>
+              </tr>
+            </thead>
+            <tbody id="replicaResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /replicaResults -->
+
+  </div><!-- /pageReplicas -->
+
+
+  <!-- ════════ CONFIGMAP COMPARISON PAGE ════════ -->
+  <div id="pageConfigmaps" class="hidden space-y-6">
+
+    <!-- Source grid -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+      <!-- Source A -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-orange-50 to-white">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#ea580c" stroke-width="2.2">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="text-sm font-semibold text-slate-800 leading-tight">Source A</h2>
+                <p class="text-xs text-slate-400">Paste or upload configmap snapshot</p>
+              </div>
+            </div>
+            <div class="flex gap-1.5">
+              <label class="text-xs text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer">
+                Upload<input type="file" accept=".txt,.log,.yaml,.yml" onchange="handleCmUpload(event,'A')" class="sr-only">
+              </label>
+              <button onclick="clearCm('A')" class="text-xs text-slate-400 hover:text-red-500 px-2 py-1 rounded-md border border-slate-200 hover:border-red-200 transition-all">✕</button>
+            </div>
+          </div>
+        </div>
+        <div class="p-6 flex-1 flex flex-col space-y-2">
+          <textarea id="cmContentA" rows="13"
+            class="code-area flex-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:bg-white transition-colors"
+            placeholder="Paste output of:
+kubectl describe configmaps --all-namespaces
+# or for a specific namespace:
+kubectl describe configmaps -n &lt;namespace&gt;"></textarea>
+          <p class="text-xs text-slate-400 mono">kubectl describe configmaps --all-namespaces</p>
+        </div>
+      </div>
+
+      <!-- Source B — File | Live toggle -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-sky-50 to-white">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-sky-100 flex items-center justify-center flex-shrink-0">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#0284c7" stroke-width="2.2">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+                </svg>
+              </div>
+              <div>
+                <h2 class="text-sm font-semibold text-slate-800 leading-tight">Source B</h2>
+                <p id="cmBSubtitle" class="text-xs text-slate-400">Paste or upload configmap snapshot</p>
+              </div>
+            </div>
+            <div class="mode-toggle flex-shrink-0">
+              <button id="btnCmFile" class="mode-btn active" onclick="setCmMode('file')">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                File
+              </button>
+              <button id="btnCmLive" class="mode-btn" onclick="setCmMode('live')">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 2v2m0 16v2M2 12h2m16 0h2m-3.5-7.5-1.5 1.5M7 7 5.5 5.5m12 12-1.5-1.5M7 17l-1.5 1.5"/>
+                </svg>
+                Live
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- File panel -->
+        <div id="cmBFilePanel" class="p-6 flex-1 flex flex-col space-y-3">
+          <div class="flex justify-end gap-1.5">
+            <label class="text-xs text-slate-500 hover:text-blue-600 px-2.5 py-1 rounded-md border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer">
+              Upload<input type="file" accept=".txt,.log,.yaml,.yml" onchange="handleCmUpload(event,'B')" class="sr-only">
+            </label>
+            <button onclick="clearCm('B')" class="text-xs text-slate-400 hover:text-red-500 px-2 py-1 rounded-md border border-slate-200 hover:border-red-200 transition-all">✕</button>
+          </div>
+          <textarea id="cmContentB" rows="12"
+            class="code-area flex-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:bg-white transition-colors"
+            placeholder="Paste output of:
+kubectl describe configmaps --all-namespaces
+# or for a specific namespace:
+kubectl describe configmaps -n &lt;namespace&gt;"></textarea>
+        </div>
+
+        <!-- Live panel -->
+        <div id="cmBLivePanel" class="hidden p-6 flex-1 flex flex-col space-y-4 slide-in">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Environment</label>
+            <select id="cmEnv" onchange="onCmEnvChange()"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors cursor-pointer">
+              <option value="SIT">SIT</option>
+              <option value="SIT2">SIT2</option>
+              <option value="PRD">PRD</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+              Namespace
+              <span class="normal-case font-normal text-slate-400 ml-1">— leave blank for all namespaces</span>
+            </label>
+            <input id="cmNamespace" type="text" placeholder="leave blank for all namespaces"
+              oninput="saveCmNs()"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+          </div>
+          <div class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5 flex items-start gap-2 mt-auto">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#3b82f6" stroke-width="2" class="mt-0.5 flex-shrink-0">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              Run <code class="bg-white px-1 py-0.5 rounded border border-slate-200 font-mono text-[11px]">kubectl proxy --port=8001</code> before comparing.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /source grid -->
+
+    <!-- Compare button -->
+    <div class="flex items-center justify-center">
+      <button id="cmCompareBtn" onclick="runCmComparison()"
+        class="px-9 py-3 bg-gradient-to-r from-orange-500 to-sky-600 hover:from-orange-600 hover:to-sky-700 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-lg active:scale-95 transition-all duration-150 flex items-center gap-2.5">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+        </svg>
+        Compare ConfigMaps
+      </button>
+    </div>
+
+    <!-- Loading -->
+    <div id="cmLoadingState" class="hidden text-center py-10">
+      <svg class="spin inline-block w-7 h-7 text-orange-500 mb-3" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <p id="cmLoadingMsg" class="text-sm font-medium text-slate-700">Processing…</p>
+    </div>
+
+    <!-- Error banner -->
+    <div id="cmErrorBanner" class="hidden rounded-xl border px-5 py-4 flex items-start gap-3">
+      <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <div>
+        <p id="cmErrorTitle" class="text-sm font-semibold"></p>
+        <pre id="cmErrorMsg" class="text-xs mt-1 whitespace-pre-wrap"></pre>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="cmResults" class="hidden fade-up space-y-5">
+      <!-- Summary cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Total</p>
+          <p id="cmStatTotal" class="text-3xl font-bold text-slate-800 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-red-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-red-400 uppercase tracking-wide">Config Diffs</p>
+          <p id="cmStatDiff" class="text-3xl font-bold text-red-600 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-amber-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-amber-400 uppercase tracking-wide">Missing</p>
+          <p id="cmStatMiss" class="text-3xl font-bold text-amber-500 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-green-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-green-400 uppercase tracking-wide">Matching</p>
+          <p id="cmStatMatch" class="text-3xl font-bold text-green-600 mt-1">—</p>
+        </div>
+      </div>
+
+      <!-- Results table -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-800">ConfigMap Comparison Details</h3>
+          <div class="flex items-center gap-4 text-xs text-slate-500">
+            <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-red-400"></span>Diff</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400"></span>Missing</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-green-400"></span>Match</span>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-200 text-left">
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Namespace</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">ConfigMap</th>
+                <th id="cmLabelA" class="px-4 py-3 text-xs font-semibold text-orange-500 uppercase tracking-wide text-center border-l border-slate-200">Source A</th>
+                <th id="cmLabelB" class="px-4 py-3 text-xs font-semibold text-sky-500 uppercase tracking-wide text-center border-l border-slate-200">Source B</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-center w-28">Status</th>
+                <th class="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide text-center w-28">Details</th>
+              </tr>
+            </thead>
+            <tbody id="cmResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /cmResults -->
+
+  </div><!-- /pageConfigmaps -->
+
+
+  <!-- ════════ BRANCH COMPARE PAGE ════════ -->
+  <div id="pageHelm" class="hidden space-y-6">
+
+    <!-- Config panel -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+      <!-- Panel header with Online / Manual toggle -->
+      <div class="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-white">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#059669" stroke-width="2.2">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-sm font-semibold text-slate-800 leading-tight">Branch Compare — Helm Values</h2>
+              <p id="helmSubtitle" class="text-xs text-slate-400">Fetch from Azure DevOps branches</p>
+            </div>
+          </div>
+          <div class="mode-toggle flex-shrink-0">
+            <button id="btnHelmOnline" class="mode-btn active" onclick="setHelmMode('online')">
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+              </svg>
+              Online
+            </button>
+            <button id="btnHelmManual" class="mode-btn" onclick="setHelmMode('manual')">
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+              </svg>
+              Manual Upload
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ONLINE panel -->
+      <div id="helmOnlinePanel" class="p-6 space-y-4">
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Organization URL</label>
+            <input id="helmOrgUrl" type="text" placeholder="https://dev.azure.com/myorg"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Project</label>
+            <input id="helmProject" type="text" placeholder="my-project"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Repository</label>
+            <input id="helmRepo" type="text" placeholder="my-helm-repo"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">
+              Branches
+              <span class="normal-case font-normal text-slate-400 ml-1">— comma-separated</span>
+            </label>
+            <input id="helmBranches" type="text" placeholder="main, release/1.0, feature/x"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Base Path</label>
+            <input id="helmBasePath" type="text" placeholder="/helm-chart"
+              class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono">
+            <p class="text-xs text-slate-400 mt-1">Service folders are auto-discovered at this path (fetches <code class="bg-slate-100 px-0.5 rounded">/{svc}/{svc}.yaml</code> per service).</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+            Personal Access Token (PAT)
+            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" stroke-width="2.5">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
+          </label>
+          <input id="helmPat" type="password" placeholder="••••••••••••••••••••••••••••••••••••••••••"
+            class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-800 transition-colors mono tracking-widest">
+          <p class="text-xs text-slate-400 mt-1">Kept in-memory only — never saved to disk or localStorage.</p>
+        </div>
+      </div>
+
+      <!-- MANUAL panel -->
+      <div id="helmManualPanel" class="hidden p-6 slide-in">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+
+          <!-- Directory A -->
+          <div id="helmSlotA" class="branch-slot">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-200 flex-shrink-0">A</span>
+                <input id="helmLabelA" type="text" value="Directory A"
+                  class="text-sm font-semibold text-slate-700 bg-transparent border-0 outline-none focus:bg-slate-100 rounded px-1 w-36">
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="helmStatusA" class="text-xs text-slate-400">No directory selected</span>
+                <label class="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-0.5 border border-blue-200 rounded-md hover:bg-blue-50 transition-all whitespace-nowrap">
+                  <input id="helmInputA" type="file" webkitdirectory class="sr-only">
+                  Select Directory
+                </label>
+                <button onclick="clearHelmDir('A')" class="text-slate-300 hover:text-red-400 text-sm leading-none" title="Clear">✕</button>
+              </div>
+            </div>
+            <div id="helmListA" class="space-y-0.5">
+              <p class="text-xs text-slate-400">Select a folder whose sub-folders follow <code class="bg-slate-100 px-0.5 rounded">serviceName/serviceName.yaml</code> structure.</p>
+            </div>
+          </div>
+
+          <!-- Directory B -->
+          <div id="helmSlotB" class="branch-slot">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold bg-teal-100 text-teal-700 border border-teal-200 flex-shrink-0">B</span>
+                <input id="helmLabelB" type="text" value="Directory B"
+                  class="text-sm font-semibold text-slate-700 bg-transparent border-0 outline-none focus:bg-slate-100 rounded px-1 w-36">
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="helmStatusB" class="text-xs text-slate-400">No directory selected</span>
+                <label class="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-0.5 border border-blue-200 rounded-md hover:bg-blue-50 transition-all whitespace-nowrap">
+                  <input id="helmInputB" type="file" webkitdirectory class="sr-only">
+                  Select Directory
+                </label>
+                <button onclick="clearHelmDir('B')" class="text-slate-300 hover:text-red-400 text-sm leading-none" title="Clear">✕</button>
+              </div>
+            </div>
+            <div id="helmListB" class="space-y-0.5">
+              <p class="text-xs text-slate-400">Select a folder whose sub-folders follow <code class="bg-slate-100 px-0.5 rounded">serviceName/serviceName.yaml</code> structure.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /config panel -->
+
+
+    <!-- Compare button -->
+    <div class="flex items-center justify-center">
+      <button id="helmCompareBtn" onclick="runHelmComparison()"
+        class="px-9 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-lg active:scale-95 transition-all duration-150 flex items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        Compare Branches
+      </button>
+    </div>
+
+
+    <!-- Loading -->
+    <div id="helmLoadingState" class="hidden text-center py-10">
+      <svg class="spin inline-block w-7 h-7 text-emerald-500 mb-3" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
+      <p id="helmLoadingMsg" class="text-sm font-medium text-slate-700">Processing…</p>
+      <p id="helmLoadingDetail" class="text-xs text-slate-400 mt-1"></p>
+    </div>
+
+
+    <!-- Error banner -->
+    <div id="helmErrorBanner" class="hidden rounded-xl border px-5 py-4 flex items-start gap-3">
+      <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <div>
+        <p id="helmErrorTitle" class="text-sm font-semibold"></p>
+        <pre id="helmErrorMsg" class="text-xs mt-1 whitespace-pre-wrap"></pre>
+      </div>
+    </div>
+
+
+    <!-- Results -->
+    <div id="helmResults" class="hidden fade-up space-y-5">
+
+      <!-- Summary cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Services</p>
+          <p id="helmStatServices" class="text-3xl font-bold text-slate-800 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-red-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-red-400 uppercase tracking-wide">Value Diffs</p>
+          <p id="helmStatDiff" class="text-3xl font-bold text-red-600 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-amber-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-amber-400 uppercase tracking-wide">Missing</p>
+          <p id="helmStatMissing" class="text-3xl font-bold text-amber-500 mt-1">—</p>
+        </div>
+        <div class="bg-white rounded-xl border border-green-100 shadow-sm px-5 py-4">
+          <p class="text-xs font-semibold text-green-400 uppercase tracking-wide">Matching</p>
+          <p id="helmStatMatch" class="text-3xl font-bold text-green-600 mt-1">—</p>
+        </div>
+      </div>
+
+      <!-- Results table -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-800">Branch Comparison Details</h3>
+          <div class="flex items-center gap-3">
+            <button id="helmDiffsOnlyBtn" onclick="toggleHelmDiffsOnly()"
+              class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all font-medium">
+              Show diffs only
+            </button>
+            <div class="flex items-center gap-4 text-xs text-slate-500">
+              <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-red-400"></span>Diff</span>
+              <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400"></span>Missing</span>
+              <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-green-400"></span>Match</span>
+            </div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead id="helmResultsHead"></thead>
+            <tbody id="helmResultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /helmResults -->
+
+  </div><!-- /pageHelm -->
+
+
+  </div><!-- /content pages -->
+</div><!-- /flex wrapper -->
+</main>
+
+
+<!-- ═══════════════════════ SCRIPTS ═══════════════════════ -->
+<script>
+// ─────────────────────────── State ───────────────────────────
+let adoMode  = 'online';   // 'online' | 'manual'
+let kubeMode = 'paste';    // 'paste'  | 'live'
+
+
+// ─────────────────────────── Mode toggle ───────────────────────────
+function setMode(mode) {
+  adoMode = mode;
+  const online = document.getElementById('onlinePanel');
+  const manual = document.getElementById('manualPanel');
+  const btnO   = document.getElementById('btnOnline');
+  const btnM   = document.getElementById('btnManual');
+  const sub    = document.getElementById('adoSubtitle');
+  const btnTxt = document.getElementById('btnText');
+
+  if (mode === 'online') {
+    online.classList.remove('hidden');
+    manual.classList.add('hidden');
+    online.classList.add('slide-in');
+    btnO.classList.add('active');
+    btnM.classList.remove('active');
+    sub.textContent = 'Fetched via Azure DevOps REST API';
+    btnTxt.textContent = 'Fetch & Compare';
+  } else {
+    manual.classList.remove('hidden');
+    online.classList.add('hidden');
+    manual.classList.add('slide-in');
+    btnM.classList.add('active');
+    btnO.classList.remove('active');
+    sub.textContent = 'Upload deploy.txt files from your machine';
+    btnTxt.textContent = 'Compare';
+    // Sync branches input to manual if already filled
+    const onlineBranches = v('branches').trim();
+    if (onlineBranches && !v('branchesManual').trim()) {
+      set('branchesManual', onlineBranches);
+    }
+    syncManualSlots();
+  }
+
+  localStorage.setItem('deploy-cmp-mode', mode);
+}
+
+
+// ─────────────────────────── Kube mode toggle (Paste / Live) ───────────────────────────
+const DEFAULT_KUBE_NS = { SIT: 'sit', SIT2: 'sit2', PRD: 'prd' };
+
+function setKubeMode(mode) {
+  kubeMode = mode;
+  const pastePanel = document.getElementById('kubePastePanel');
+  const livePanel  = document.getElementById('kubeLivePanel');
+  const btnPaste   = document.getElementById('btnKubePaste');
+  const btnLive    = document.getElementById('btnKubeLive');
+  const sub        = document.getElementById('kubeSubtitle');
+
+  if (mode === 'paste') {
+    pastePanel.classList.remove('hidden');
+    livePanel.classList.add('hidden');
+    btnPaste.classList.add('active');
+    btnLive.classList.remove('active');
+    sub.textContent = 'Paste or upload kubectl output';
+  } else {
+    livePanel.classList.remove('hidden');
+    pastePanel.classList.add('hidden');
+    livePanel.classList.add('slide-in');
+    btnLive.classList.add('active');
+    btnPaste.classList.remove('active');
+    sub.textContent = 'Live via kubectl proxy';
+    onEnvChange();
+  }
+  localStorage.setItem('deploy-cmp-kube-mode', mode);
+}
+
+function onEnvChange() {
+  const env   = v('kubeEnv');
+  const saved = JSON.parse(localStorage.getItem('deploy-cmp-kube-ns') || '{}');
+  set('kubeNamespace', saved[env] || DEFAULT_KUBE_NS[env] || '');
+}
+
+function saveKubeNs() {
+  const env   = v('kubeEnv');
+  const ns    = v('kubeNamespace').trim();
+  const saved = JSON.parse(localStorage.getItem('deploy-cmp-kube-ns') || '{}');
+  saved[env]  = ns;
+  localStorage.setItem('deploy-cmp-kube-ns', JSON.stringify(saved));
+}
+
+// ─────────────────────────── Live Kubernetes fetch ───────────────────────────
+async function fetchKubeDeployments(namespace) {
+  const url = `http://localhost:8001/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments`;
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (_) {
+    throw new Error('Cannot reach kubectl proxy at localhost:8001.\nRun: kubectl proxy --port=8001');
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Kubernetes API HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+function parseKubeJSON(json) {
+  const result = {};
+  for (const item of (json.items || [])) {
+    const name = item.metadata?.name;
+    if (!name) continue;
+    const containers = item.spec?.template?.spec?.containers || [];
+    const image      = containers[0]?.image || '';
+    const ready      = item.status?.readyReplicas ?? 0;
+    const desired    = item.spec?.replicas ?? 0;
+    result[name] = {
+      NAME       : name,
+      IMAGES     : image,
+      COMPARE_KEY: buildCompareKey(image, ''),
+      READY      : `${ready}/${desired}`,
+    };
+  }
+  return result;
+}
+
+
+// ─────────────────────────── Page navigation ───────────────────────────
+function setPage(page) {
+  ['images','replicas','configmaps','helm'].forEach(p => {
+    document.getElementById(`page${p.charAt(0).toUpperCase()+p.slice(1)}`).classList.toggle('hidden', p !== page);
+    document.getElementById(`nav${p.charAt(0).toUpperCase()+p.slice(1)}`).classList.toggle('nav-active', p === page);
+  });
+  localStorage.setItem('deploy-cmp-page', page);
+}
+
+
+// ─────────────────────────── Replica comparison ───────────────────────────
+let replicaMode = 'file';   // 'file' | 'live' for Source B
+
+function setReplicaMode(mode) {
+  replicaMode = mode;
+  const filePanel = document.getElementById('replicaBFilePanel');
+  const livePanel = document.getElementById('replicaBLivePanel');
+  const btnFile   = document.getElementById('btnReplicaFile');
+  const btnLive   = document.getElementById('btnReplicaLive');
+  const sub       = document.getElementById('replicaBSubtitle');
+
+  if (mode === 'file') {
+    filePanel.classList.remove('hidden');
+    livePanel.classList.add('hidden');
+    btnFile.classList.add('active');
+    btnLive.classList.remove('active');
+    sub.textContent = 'Paste or upload replica snapshot';
+  } else {
+    livePanel.classList.remove('hidden');
+    filePanel.classList.add('hidden');
+    livePanel.classList.add('slide-in');
+    btnLive.classList.add('active');
+    btnFile.classList.remove('active');
+    sub.textContent = 'Live via kubectl proxy';
+    onReplicaEnvChange();
+  }
+}
+
+function onReplicaEnvChange() {
+  const env   = v('replicaEnv');
+  const saved = JSON.parse(localStorage.getItem('deploy-cmp-kube-ns') || '{}');
+  set('replicaNamespace', saved[env] || DEFAULT_KUBE_NS[env] || '');
+}
+
+function saveReplicaNs() {
+  const env   = v('replicaEnv');
+  const ns    = v('replicaNamespace').trim();
+  const saved = JSON.parse(localStorage.getItem('deploy-cmp-kube-ns') || '{}');
+  saved[env]  = ns;
+  localStorage.setItem('deploy-cmp-kube-ns', JSON.stringify(saved));
+}
+
+function handleReplicaUpload(e, src) {
+  const file = e.target.files[0];
+  if (!file) return;
+  file.text().then(txt => { document.getElementById(`replicaContent${src}`).value = txt; });
+}
+
+function clearReplica(src) {
+  document.getElementById(`replicaContent${src}`).value = '';
+}
+
+// Parse the fixed-width custom-columns tabular output:
+// NAMESPACE  NAME  DESIRED  READY  AVAILABLE
+function parseReplicaText(text) {
+  const lines = text.trim().split('\n').filter(l => l.trim());
+  if (lines.length < 2) return {};
+
+  const header    = lines[0];
+  const colStarts = [];
+  let inWord = false;
+  for (let i = 0; i < header.length; i++) {
+    if (header[i] !== ' ' && !inWord) { colStarts.push(i); inWord = true; }
+    else if (header[i] === ' ')        { inWord = false; }
+  }
+
+  const colNames = colStarts.map((s, i) => {
+    const e = i + 1 < colStarts.length ? colStarts[i + 1] : header.length;
+    return header.slice(s, e).trim().toUpperCase();
+  });
+
+  const iNs  = colNames.indexOf('NAMESPACE');
+  const iNm  = colNames.indexOf('NAME');
+  const iDes = colNames.indexOf('DESIRED');
+  const iRdy = colNames.indexOf('READY');
+  const iAvl = colNames.indexOf('AVAILABLE');
+
+  const toInt = v => (v === '<none>' || v === '' || v == null) ? null : (parseInt(v) || 0);
+
+  const result = {};
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const vals = colStarts.map((s, idx) => {
+      const e = idx + 1 < colStarts.length ? colStarts[idx + 1] : line.length;
+      return (line.slice(s, e) || '').trim();
+    });
+    const ns   = iNs  >= 0 ? vals[iNs]  : 'default';
+    const name = iNm  >= 0 ? vals[iNm]  : vals[0] || '';
+    if (!name) continue;
+    result[`${ns}/${name}`] = {
+      namespace : ns,
+      name,
+      desired   : iDes >= 0 ? toInt(vals[iDes]) : null,
+      ready     : iRdy >= 0 ? toInt(vals[iRdy]) : null,
+      available : iAvl >= 0 ? toInt(vals[iAvl]) : null,
+    };
+  }
+  return result;
+}
+
+// Fetch all (or specific) namespace deployments from kubectl proxy
+async function fetchReplicasLive(namespace) {
+  const url = namespace
+    ? `http://localhost:8001/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments`
+    : `http://localhost:8001/apis/apps/v1/deployments`;
+  let res;
+  try { res = await fetch(url); }
+  catch (_) { throw new Error('Cannot reach kubectl proxy at localhost:8001.\nRun: kubectl proxy --port=8001'); }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Kubernetes API HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  const result = {};
+  for (const item of (json.items || [])) {
+    const ns   = item.metadata?.namespace || 'default';
+    const name = item.metadata?.name;
+    if (!name) continue;
+    result[`${ns}/${name}`] = {
+      namespace : ns,
+      name,
+      desired   : item.spec?.replicas          ?? null,
+      ready     : item.status?.readyReplicas    ?? null,
+      available : item.status?.availableReplicas ?? null,
+    };
+  }
+  return result;
+}
+
+function compareReplicas(dataA, dataB) {
+  const all = new Set([...Object.keys(dataA), ...Object.keys(dataB)]);
+  const rows = [];
+  for (const key of all) {
+    const a = dataA[key] || null;
+    const b = dataB[key] || null;
+    let status;
+    if (!a && !b)  status = 'UNKNOWN';
+    else if (!a)   status = 'ONLY_B';
+    else if (!b)   status = 'ONLY_A';
+    else if (a.desired === b.desired && a.ready === b.ready && a.available === b.available)
+                   status = 'MATCH';
+    else           status = 'DIFF';
+    rows.push({ key, namespace: (a||b).namespace, name: (a||b).name, a, b, status });
+  }
+  const order = { DIFF:0, ONLY_A:1, ONLY_B:1, UNKNOWN:2, MATCH:3 };
+  rows.sort((x, y) =>
+    (order[x.status]??3) - (order[y.status]??3) ||
+    x.namespace.localeCompare(y.namespace) ||
+    x.name.localeCompare(y.name)
+  );
+  return rows;
+}
+
+function renderReplicaResults(rows, labelA, labelB) {
+  set_text('rStatTotal', rows.length);
+  set_text('rStatDiff',  rows.filter(r => r.status === 'DIFF').length);
+  set_text('rStatMiss',  rows.filter(r => r.status === 'ONLY_A' || r.status === 'ONLY_B').length);
+  set_text('rStatMatch', rows.filter(r => r.status === 'MATCH').length);
+  document.getElementById('rLabelA').textContent = labelA;
+  document.getElementById('rLabelB').textContent = labelB;
+
+  const numCell = (val, isDiff, borderLeft) => {
+    const bdr = borderLeft ? ' border-l border-slate-200' : '';
+    if (val === null || val === undefined)
+      return `<td class="px-4 py-3 text-center text-slate-300 text-xs${bdr}">—</td>`;
+    const cls = isDiff ? 'text-red-600 font-bold' : 'text-slate-700';
+    return `<td class="px-4 py-3 text-center mono text-xs ${cls}${bdr}">${val}</td>`;
+  };
+
+  let html = '';
+  let inMatchSection = false;
+  const hasIssues = rows.some(r => r.status !== 'MATCH');
+
+  for (const r of rows) {
+    if (!inMatchSection && r.status === 'MATCH' && hasIssues) {
+      inMatchSection = true;
+      html += `<tr class="section-sep"><td colspan="9">Matching Deployments</td></tr>`;
+    }
+    const rowCls = r.status === 'DIFF' ? 'row-diff'
+                 : (r.status === 'ONLY_A' || r.status === 'ONLY_B') ? 'row-miss'
+                 : r.status === 'MATCH' ? 'row-match' : '';
+
+    const aD = r.a?.desired ?? null, aR = r.a?.ready ?? null, aA = r.a?.available ?? null;
+    const bD = r.b?.desired ?? null, bR = r.b?.ready ?? null, bA = r.b?.available ?? null;
+
+    html += `<tr class="${rowCls} border-b border-slate-100 transition-colors">
+      <td class="px-4 py-3 text-xs text-slate-500 mono">${esc(r.namespace)}</td>
+      <td class="px-4 py-3 font-semibold text-slate-800 text-sm">${esc(r.name)}</td>
+      ${numCell(aD, r.status==='DIFF'&&aD!==bD, true)}
+      ${numCell(aR, r.status==='DIFF'&&aR!==bR, false)}
+      ${numCell(aA, r.status==='DIFF'&&aA!==bA, false)}
+      ${numCell(bD, r.status==='DIFF'&&aD!==bD, true)}
+      ${numCell(bR, r.status==='DIFF'&&aR!==bR, false)}
+      ${numCell(bA, r.status==='DIFF'&&aA!==bA, false)}
+      <td class="px-4 py-3 text-center">${replicaBadge(r.status)}</td>
+    </tr>`;
+  }
+
+  if (!rows.length) {
+    html = `<tr><td colspan="9" class="text-center py-14 text-slate-400 text-sm">No deployments found.</td></tr>`;
+  }
+
+  document.getElementById('replicaResultsBody').innerHTML = html;
+  const el = document.getElementById('replicaResults');
+  el.classList.remove('hidden');
+  el.classList.add('fade-up');
+  setTimeout(() => el.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+}
+
+function replicaBadge(status) {
+  switch (status) {
+    case 'DIFF':   return `<span class="badge badge-diff"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M6 18L18 6M6 6l12 12"/></svg>DIFF</span>`;
+    case 'MATCH':  return `<span class="badge badge-match"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>MATCH</span>`;
+    case 'ONLY_A': return `<span class="badge badge-missing"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>ONLY A</span>`;
+    case 'ONLY_B': return `<span class="badge badge-missing"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>ONLY B</span>`;
+    default:       return `<span class="text-slate-300 text-xs">—</span>`;
+  }
+}
+
+function setReplicaLoading(show, msg) {
+  const el  = document.getElementById('replicaLoadingState');
+  const btn = document.getElementById('replicaCompareBtn');
+  el.classList.toggle('hidden', !show);
+  btn.disabled = show;
+  if (show && msg) document.getElementById('replicaLoadingMsg').textContent = msg;
+}
+
+function showReplicaError(type, title, msg) {
+  const el = document.getElementById('replicaErrorBanner');
+  el.className = type === 'warn'
+    ? 'rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3 text-amber-800'
+    : 'rounded-xl border border-red-200 bg-red-50 px-5 py-4 flex items-start gap-3 text-red-800';
+  document.getElementById('replicaErrorTitle').textContent = title;
+  document.getElementById('replicaErrorMsg').textContent   = msg;
+  el.classList.remove('hidden');
+}
+
+async function runReplicaComparison() {
+  document.getElementById('replicaErrorBanner').classList.add('hidden');
+  document.getElementById('replicaResults').classList.add('hidden');
+
+  const textA = v('replicaContentA').trim();
+  if (!textA) { showReplicaError('error', 'Source A missing', 'Paste or upload the replica data for Source A.'); return; }
+
+  const dataA = parseReplicaText(textA);
+  let dataB;
+
+  if (replicaMode === 'live') {
+    const ns = v('replicaNamespace').trim();
+    try {
+      setReplicaLoading(true, `Fetching live replicas… ${ns ? `namespace: ${ns}` : '(all namespaces)'}`);
+      dataB = await fetchReplicasLive(ns);
+      setReplicaLoading(false);
+    } catch (e) {
+      setReplicaLoading(false);
+      showReplicaError('error', 'Kubernetes fetch failed', e.message);
+      return;
+    }
+  } else {
+    const textB = v('replicaContentB').trim();
+    if (!textB) { showReplicaError('error', 'Source B missing', 'Paste or upload the replica data for Source B.'); return; }
+    dataB = parseReplicaText(textB);
+  }
+
+  const labelA = 'Source A';
+  const labelB = replicaMode === 'live' ? `Live — ${v('replicaEnv')}` : 'Source B';
+  renderReplicaResults(compareReplicas(dataA, dataB), labelA, labelB);
+}
+
+
+// ─────────────────────────── ConfigMap comparison ───────────────────────────
+let cmMode = 'file';   // 'file' | 'live' for Source B
+
+function setCmMode(mode) {
+  cmMode = mode;
+  const filePanel = document.getElementById('cmBFilePanel');
+  const livePanel = document.getElementById('cmBLivePanel');
+  document.getElementById('btnCmFile').classList.toggle('active', mode === 'file');
+  document.getElementById('btnCmLive').classList.toggle('active', mode === 'live');
+  filePanel.classList.toggle('hidden', mode !== 'file');
+  livePanel.classList.toggle('hidden', mode !== 'live');
+  document.getElementById('cmBSubtitle').textContent =
+    mode === 'file' ? 'Paste or upload configmap snapshot' : 'Live via kubectl proxy';
+  if (mode === 'live') { livePanel.classList.add('slide-in'); onCmEnvChange(); }
+}
+
+function onCmEnvChange() {
+  const env   = v('cmEnv');
+  const saved = JSON.parse(localStorage.getItem('deploy-cmp-kube-ns') || '{}');
+  set('cmNamespace', saved[env] || DEFAULT_KUBE_NS[env] || '');
+}
+
+function saveCmNs() {
+  const env   = v('cmEnv');
+  const ns    = v('cmNamespace').trim();
+  const saved = JSON.parse(localStorage.getItem('deploy-cmp-kube-ns') || '{}');
+  saved[env]  = ns;
+  localStorage.setItem('deploy-cmp-kube-ns', JSON.stringify(saved));
+}
+
+function handleCmUpload(e, src) {
+  const file = e.target.files[0];
+  if (file) file.text().then(t => { document.getElementById(`cmContent${src}`).value = t; });
+}
+
+function clearCm(src) {
+  document.getElementById(`cmContent${src}`).value = '';
+}
+
+// Parse kubectl describe configmaps output (multi-block, separated by ---)
+function parseConfigmapDescribe(text) {
+  const result = {};
+  // Normalize line endings, split into per-configmap blocks
+  const blocks = text.replace(/\r\n/g, '\n').split(/\n\s*---\s*\n/).filter(s => s.trim());
+
+  for (const block of blocks) {
+    const lines   = block.split('\n');
+    let name      = null;
+    let namespace = null;
+    const data    = {};
+    let inData     = false;
+    let currentKey = null;
+    let valueLines = [];
+
+    const flushKey = () => {
+      if (currentKey !== null) {
+        data[currentKey] = valueLines.join('\n').trimEnd();
+        currentKey = null;
+        valueLines = [];
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const raw     = lines[i];
+      const trimmed = raw.trim();
+
+      // Metadata
+      const nm = raw.match(/^Name:\s+(.+)/);
+      if (nm)  { name      = nm[1].trim();  continue; }
+      const ns = raw.match(/^Namespace:\s+(.+)/);
+      if (ns)  { namespace = ns[1].trim();  continue; }
+
+      // Section markers
+      if (trimmed === 'Data')        { flushKey(); inData = true;  continue; }
+      if (trimmed === 'BinaryData')  { flushKey(); inData = false; continue; }
+      if (/^Events:/.test(trimmed)) { flushKey(); inData = false; continue; }
+      if (trimmed === '====' || trimmed === '----') continue;
+
+      if (!inData) continue;
+
+      // Data key: non-indented line ending with ':', next line is '----'
+      if (!raw.startsWith(' ') && trimmed.endsWith(':') &&
+          lines[i + 1]?.trim() === '----') {
+        flushKey();
+        currentKey = trimmed.slice(0, -1);
+      } else if (currentKey !== null) {
+        valueLines.push(raw);
+      }
+    }
+    flushKey();
+
+    if (name) {
+      const ns = namespace || 'default';
+      result[`${ns}/${name}`] = { namespace: ns, name, data };
+    }
+  }
+  return result;
+}
+
+// Fetch configmaps via kubectl proxy and normalise to same shape as describe parser
+async function fetchConfigmapsLive(namespace) {
+  const url = namespace
+    ? `http://localhost:8001/api/v1/namespaces/${encodeURIComponent(namespace)}/configmaps`
+    : `http://localhost:8001/api/v1/configmaps`;
+  let res;
+  try { res = await fetch(url); }
+  catch (_) { throw new Error('Cannot reach kubectl proxy at localhost:8001.\nRun: kubectl proxy --port=8001'); }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Kubernetes API HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  const result = {};
+  for (const item of (json.items || [])) {
+    const ns   = item.metadata?.namespace || 'default';
+    const name = item.metadata?.name;
+    if (!name || name === 'kube-root-ca.crt') continue;
+    result[`${ns}/${name}`] = { namespace: ns, name, data: item.data || {} };
+  }
+  return result;
+}
+
+// Try to parse text as key:value / key=value properties.
+// Returns a map if ≥80% of lines parse cleanly, otherwise null (treat as raw text).
+// Hard cap at 200KB — anything larger is treated as raw to keep the UI responsive.
+function tryParseProps(text) {
+  if (!text?.trim() || text.length > 200_000) return null;
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  if (!lines.length || lines.length > 5000) return null;
+  const props = {};
+  let parsed = 0;
+  for (const line of lines) {
+    const m = line.match(/^([\w./-]+)\s*[:=]\s*(.*)/);
+    if (m) { props[m[1]] = m[2].trim(); parsed++; }
+  }
+  return parsed >= lines.length * 0.8 && parsed > 0 ? props : null;
+}
+
+// Yield control back to the browser for one frame so loading UI can render
+const yieldToBrowser = () => new Promise(r => setTimeout(r, 0));
+
+function compareConfigmaps(dataA, dataB) {
+  const all = new Set([...Object.keys(dataA), ...Object.keys(dataB)]);
+  const rows = [];
+
+  for (const key of all) {
+    const a = dataA[key] || null;
+    const b = dataB[key] || null;
+    let status, keyDiffs = [];
+
+    if (!a && !b)  { status = 'UNKNOWN'; }
+    else if (!a)   { status = 'ONLY_B'; }
+    else if (!b)   { status = 'ONLY_A'; }
+    else {
+      const allDk = new Set([...Object.keys(a.data), ...Object.keys(b.data)]);
+      for (const dk of allDk) {
+        const va = a.data[dk] ?? null;
+        const vb = b.data[dk] ?? null;
+        const s  = va === null ? 'ONLY_B' : vb === null ? 'ONLY_A' : va === vb ? 'MATCH' : 'DIFF';
+
+        // Try to parse content as properties for granular per-key comparison
+        let propDiffs = null;
+        if (s === 'DIFF' || s === 'MATCH') {
+          const pA = va ? tryParseProps(va) : null;
+          const pB = vb ? tryParseProps(vb) : null;
+          if (pA || pB) {
+            const allPk = new Set([...Object.keys(pA || {}), ...Object.keys(pB || {})]);
+            propDiffs = [];
+            for (const pk of allPk) {
+              const pva = pA?.[pk] ?? null;
+              const pvb = pB?.[pk] ?? null;
+              const ps  = pva === null ? 'ONLY_B' : pvb === null ? 'ONLY_A' : pva === pvb ? 'MATCH' : 'DIFF';
+              propDiffs.push({ key: pk, valueA: pva, valueB: pvb, status: ps });
+            }
+            propDiffs.sort((x, y) => {
+              const o = { DIFF:0, ONLY_A:1, ONLY_B:1, MATCH:2 };
+              return (o[x.status]??2) - (o[y.status]??2) || x.key.localeCompare(y.key);
+            });
+          }
+        }
+
+        keyDiffs.push({ key: dk, valueA: va, valueB: vb, status: s, propDiffs });
+      }
+      keyDiffs.sort((x, y) => {
+        const o = { DIFF:0, ONLY_A:1, ONLY_B:1, MATCH:2 };
+        return (o[x.status]??2) - (o[y.status]??2) || x.key.localeCompare(y.key);
+      });
+      status = keyDiffs.some(d => d.status !== 'MATCH') ? 'DIFF' : 'MATCH';
+    }
+
+    rows.push({ key, namespace: (a||b).namespace, name: (a||b).name, a, b, status, keyDiffs });
+  }
+
+  const order = { DIFF:0, ONLY_A:1, ONLY_B:1, UNKNOWN:2, MATCH:3 };
+  rows.sort((x, y) =>
+    (order[x.status]??3) - (order[y.status]??3) ||
+    x.namespace.localeCompare(y.namespace) ||
+    x.name.localeCompare(y.name)
+  );
+  return rows;
+}
+
+const CM_DISPLAY_CAP = 500;   // rows rendered initially; "Show all" loads the rest
+
+function renderCmResults(rows, labelA, labelB) {
+  set_text('cmStatTotal', rows.length);
+  set_text('cmStatDiff',  rows.filter(r => r.status === 'DIFF').length);
+  set_text('cmStatMiss',  rows.filter(r => r.status === 'ONLY_A' || r.status === 'ONLY_B').length);
+  set_text('cmStatMatch', rows.filter(r => r.status === 'MATCH').length);
+  document.getElementById('cmLabelA').textContent = labelA;
+  document.getElementById('cmLabelB').textContent = labelB;
+
+  // For very large result sets, render the first CM_DISPLAY_CAP rows and offer "Show all"
+  const capped    = !window.CM_DISPLAY_CAP_OVERRIDE && rows.length > CM_DISPLAY_CAP;
+  const visRows   = capped ? rows.slice(0, CM_DISPLAY_CAP) : rows;
+  // Store the rest for the "show all" button
+  window._cmAllRows    = rows;
+  window._cmLabelA     = labelA;
+  window._cmLabelB     = labelB;
+
+  let html = '';
+  let inMatchSection = false;
+  const hasIssues = rows.some(r => r.status !== 'MATCH');
+  const rows_to_render = visRows;
+
+  rows_to_render.forEach((r, idx) => {
+    if (!inMatchSection && r.status === 'MATCH' && hasIssues) {
+      inMatchSection = true;
+      html += `<tr class="section-sep"><td colspan="6">Matching ConfigMaps</td></tr>`;
+    }
+
+    const rowCls = r.status === 'DIFF'   ? 'row-diff'
+                 : (r.status === 'ONLY_A' || r.status === 'ONLY_B') ? 'row-miss'
+                 : r.status === 'MATCH'   ? 'row-match' : '';
+
+    const aKeys      = r.a ? Object.keys(r.a.data).length : null;
+    const bKeys      = r.b ? Object.keys(r.b.data).length : null;
+    const diffCount  = r.keyDiffs.filter(d => d.status !== 'MATCH').length;
+    const hasDetails = r.status === 'DIFF' && diffCount > 0;
+
+    const keySummary = (n, colCls) =>
+      n !== null
+        ? `<span class="text-slate-600">${n} key${n !== 1 ? 's' : ''}</span>`
+        : `<span class="text-slate-300">—</span>`;
+
+    html += `<tr class="${rowCls} border-b border-slate-100 transition-colors${hasDetails ? ' cursor-pointer hover:brightness-95' : ''}"
+        ${hasDetails ? `onclick="toggleCmDetail(${idx})"` : ''}>
+      <td class="px-4 py-3.5 text-xs text-slate-500 mono">${esc(r.namespace)}</td>
+      <td class="px-4 py-3.5 font-semibold text-slate-800 text-sm">${esc(r.name)}</td>
+      <td class="px-4 py-3.5 text-center text-xs border-l border-slate-100">${keySummary(aKeys)}</td>
+      <td class="px-4 py-3.5 text-center text-xs border-l border-slate-100">${keySummary(bKeys)}</td>
+      <td class="px-4 py-3.5 text-center">${cmBadge(r.status)}</td>
+      <td class="px-4 py-3.5 text-center">
+        ${hasDetails
+          ? `<span class="flex items-center justify-center gap-1 text-xs text-slate-400 select-none">
+               <span id="cmArrow${idx}" class="inline-block transition-transform duration-200 text-[10px]">▶</span>
+               <span class="text-red-400 font-semibold">${diffCount} diff${diffCount !== 1 ? 's' : ''}</span>
+             </span>` : ''}
+      </td>
+    </tr>`;
+
+    // Expandable detail panel
+    if (hasDetails) {
+      // Build detail rows — drill into properties when possible
+      let detailRows = '';
+      for (const d of r.keyDiffs.filter(kd => kd.status !== 'MATCH')) {
+        if (d.propDiffs) {
+          // ── Property-level rows ──────────────────────────────
+          // File-name section header
+          detailRows += `<tr class="bg-slate-100/80 border-b border-slate-200">
+            <td colspan="4" class="pl-6 pr-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest mono">
+              ${esc(d.key)}
+              <span class="ml-2 font-normal normal-case text-slate-300">(${d.propDiffs.filter(p=>p.status!=='MATCH').length} of ${d.propDiffs.length} props differ)</span>
+            </td>
+          </tr>`;
+          // One row per property
+          for (const p of d.propDiffs) {
+            const pCls = p.status === 'DIFF'   ? 'bg-red-50/50'
+                       : p.status === 'ONLY_A' || p.status === 'ONLY_B' ? 'bg-amber-50/50' : '';
+            const vA = p.valueA !== null
+              ? `<span class="${p.status==='DIFF'?'text-red-700 font-semibold':''}">${esc(p.valueA)}</span>`
+              : `<span class="italic text-slate-300">—</span>`;
+            const vB = p.valueB !== null
+              ? `<span class="${p.status==='DIFF'?'text-red-700 font-semibold':''}">${esc(p.valueB)}</span>`
+              : `<span class="italic text-slate-300">—</span>`;
+            detailRows += `<tr class="${pCls} border-b border-slate-100">
+              <td class="pl-10 pr-3 py-2 text-xs mono font-medium text-slate-700 w-56">${esc(p.key)}</td>
+              <td class="px-3 py-2 text-xs mono text-slate-600">${vA}</td>
+              <td class="px-3 py-2 text-xs mono text-slate-600 border-l border-slate-200">${vB}</td>
+              <td class="px-3 py-2 text-center">${cmBadge(p.status)}</td>
+            </tr>`;
+          }
+        } else {
+          // ── Raw blob row (non-properties content) ────────────
+          const va = d.valueA !== null
+            ? `<span class="block break-all" title="${esc(d.valueA)}">${esc(d.valueA.length>140?d.valueA.slice(0,140)+'…':d.valueA)}</span>`
+            : `<span class="italic text-slate-300">not present</span>`;
+          const vb = d.valueB !== null
+            ? `<span class="block break-all" title="${esc(d.valueB)}">${esc(d.valueB.length>140?d.valueB.slice(0,140)+'…':d.valueB)}</span>`
+            : `<span class="italic text-slate-300">not present</span>`;
+          detailRows += `<tr class="${d.status==='DIFF'?'bg-red-50/40':'bg-amber-50/40'} border-b border-slate-100">
+            <td class="pl-8 pr-3 py-2.5 text-xs font-semibold text-slate-600 mono w-56 align-top">${esc(d.key)}</td>
+            <td class="px-3 py-2.5 text-[11px] mono text-slate-600 max-w-xs align-top">${va}</td>
+            <td class="px-3 py-2.5 text-[11px] mono text-slate-600 max-w-xs align-top border-l border-slate-200">${vb}</td>
+            <td class="px-3 py-2.5 text-center align-top">${cmBadge(d.status)}</td>
+          </tr>`;
+        }
+      }
+
+      html += `<tr id="cmDetail${idx}" class="hidden">
+        <td colspan="6" class="p-0 border-b border-slate-200">
+          <div class="bg-slate-50/70 border-l-4 border-l-red-300">
+            <div class="px-4 py-2 bg-slate-100/70 grid grid-cols-[14rem_1fr_1fr_5rem] text-[10px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-200">
+              <span class="pl-4">Property Key</span>
+              <span class="text-orange-400">${esc(labelA)}</span>
+              <span class="text-sky-500">${esc(labelB)}</span>
+              <span class="text-center">Status</span>
+            </div>
+            <table class="w-full">${detailRows}</table>
+          </div>
+        </td>
+      </tr>`;
+    }
+  });
+
+  if (!rows.length) {
+    html = `<tr><td colspan="6" class="text-center py-14 text-slate-400 text-sm">No configmaps found. Check your input format.</td></tr>`;
+  }
+
+  if (capped) {
+    html += `<tr id="cmShowAllRow">
+      <td colspan="6" class="px-6 py-4 text-center bg-amber-50 border-t border-amber-200">
+        <span class="text-sm text-amber-700 font-medium">
+          Showing first ${CM_DISPLAY_CAP} of ${rows.length} configmaps — large sets may slow rendering.
+        </span>
+        <button onclick="cmShowAll()"
+          class="ml-3 text-sm font-semibold text-blue-600 hover:underline">
+          Show all ${rows.length} →
+        </button>
+      </td>
+    </tr>`;
+  }
+
+  document.getElementById('cmResultsBody').innerHTML = html;
+  const el = document.getElementById('cmResults');
+  el.classList.remove('hidden');
+  el.classList.add('fade-up');
+  setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+}
+
+function cmShowAll() {
+  // Re-render without the cap — user explicitly accepted the cost
+  window._cmAllRows && renderCmResultsUncapped(window._cmAllRows, window._cmLabelA, window._cmLabelB);
+}
+
+// Same as renderCmResults but skips the cap (called only from cmShowAll)
+function renderCmResultsUncapped(rows, labelA, labelB) {
+  const orig = CM_DISPLAY_CAP;
+  window.CM_DISPLAY_CAP_OVERRIDE = true;
+  renderCmResults(rows, labelA, labelB);
+  window.CM_DISPLAY_CAP_OVERRIDE = false;
+}
+
+function toggleCmDetail(idx) {
+  const row   = document.getElementById(`cmDetail${idx}`);
+  const arrow = document.getElementById(`cmArrow${idx}`);
+  if (!row) return;
+  const hidden = row.classList.toggle('hidden');
+  if (arrow) arrow.style.transform = hidden ? '' : 'rotate(90deg)';
+}
+
+function cmBadge(status) {
+  switch (status) {
+    case 'DIFF':   return `<span class="badge badge-diff"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M6 18L18 6M6 6l12 12"/></svg>DIFF</span>`;
+    case 'MATCH':  return `<span class="badge badge-match"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>MATCH</span>`;
+    case 'ONLY_A': return `<span class="badge badge-missing" style="font-size:10px">ONLY A</span>`;
+    case 'ONLY_B': return `<span class="badge badge-missing" style="font-size:10px">ONLY B</span>`;
+    default:       return `<span class="text-slate-300 text-xs">—</span>`;
+  }
+}
+
+function setCmLoading(show, msg) {
+  document.getElementById('cmLoadingState').classList.toggle('hidden', !show);
+  document.getElementById('cmCompareBtn').disabled = show;
+  if (show && msg) document.getElementById('cmLoadingMsg').textContent = msg;
+}
+
+function showCmError(type, title, msg) {
+  const el = document.getElementById('cmErrorBanner');
+  el.className = type === 'warn'
+    ? 'rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3 text-amber-800'
+    : 'rounded-xl border border-red-200 bg-red-50 px-5 py-4 flex items-start gap-3 text-red-800';
+  document.getElementById('cmErrorTitle').textContent = title;
+  document.getElementById('cmErrorMsg').textContent   = msg;
+  el.classList.remove('hidden');
+}
+
+async function runCmComparison() {
+  document.getElementById('cmErrorBanner').classList.add('hidden');
+  document.getElementById('cmResults').classList.add('hidden');
+
+  const textA = v('cmContentA').trim();
+  if (!textA) { showCmError('error', 'Source A missing', 'Paste or upload the configmap data for Source A.'); return; }
+
+  const sizeMB = (textA.length / 1_048_576).toFixed(1);
+  setCmLoading(true, `Parsing Source A… (${sizeMB} MB)`);
+  await yieldToBrowser();   // let spinner render before blocking parse
+
+  let dataA;
+  try { dataA = parseConfigmapDescribe(textA); }
+  catch (e) { setCmLoading(false); showCmError('error', 'Parse error (Source A)', e.message); return; }
+
+  let dataB;
+  if (cmMode === 'live') {
+    const ns = v('cmNamespace').trim();
+    try {
+      setCmLoading(true, `Fetching live configmaps… ${ns ? `namespace: ${ns}` : '(all namespaces)'}`);
+      dataB = await fetchConfigmapsLive(ns);
+    } catch (e) {
+      setCmLoading(false);
+      showCmError('error', 'Kubernetes fetch failed', e.message);
+      return;
+    }
+  } else {
+    const textB = v('cmContentB').trim();
+    if (!textB) { setCmLoading(false); showCmError('error', 'Source B missing', 'Paste or upload the configmap data for Source B.'); return; }
+    const sizeMB2 = (textB.length / 1_048_576).toFixed(1);
+    setCmLoading(true, `Parsing Source B… (${sizeMB2} MB)`);
+    await yieldToBrowser();
+    try { dataB = parseConfigmapDescribe(textB); }
+    catch (e) { setCmLoading(false); showCmError('error', 'Parse error (Source B)', e.message); return; }
+  }
+
+  setCmLoading(true, 'Comparing…');
+  await yieldToBrowser();
+  const rows = compareConfigmaps(dataA, dataB);
+
+  setCmLoading(true, `Rendering ${rows.length} configmaps…`);
+  await yieldToBrowser();
+
+  const labelA = 'Source A';
+  const labelB = cmMode === 'live' ? `Live — ${v('cmEnv')}` : 'Source B';
+  renderCmResults(rows, labelA, labelB);
+  setCmLoading(false);
+}
+
+
+// ─────────────────────────── Branch Compare (Helm) ───────────────────────────
+let helmMode  = 'online';
+let helmDirData = { A: [], B: [] };   // [{ serviceName, props }] per directory slot
+let _helmDiffsOnly = false;
+
+function setHelmMode(mode) {
+  helmMode = mode;
+  document.getElementById('helmOnlinePanel').classList.toggle('hidden', mode !== 'online');
+  document.getElementById('helmManualPanel').classList.toggle('hidden', mode !== 'manual');
+  document.getElementById('btnHelmOnline').classList.toggle('active', mode === 'online');
+  document.getElementById('btnHelmManual').classList.toggle('active', mode === 'manual');
+  document.getElementById('helmSubtitle').textContent =
+    mode === 'online' ? 'Fetch from Azure DevOps branches' : 'Compare two local directories';
+  if (mode === 'manual') {
+    document.getElementById('helmManualPanel').classList.add('slide-in');
+  }
+  localStorage.setItem('deploy-cmp-helm-mode', mode);
+}
+
+function updateHelmDirDisplay(which) {
+  const items  = helmDirData[which] || [];
+  const listEl = document.getElementById(`helmList${which}`);
+  const statEl = document.getElementById(`helmStatus${which}`);
+  const slotEl = document.getElementById(`helmSlot${which}`);
+  if (!listEl) return;
+
+  if (!items.length) {
+    listEl.innerHTML = '<p class="text-xs text-slate-400">Select a folder whose sub-folders follow <code class="bg-slate-100 px-0.5 rounded">serviceName/serviceName.yaml</code> structure.</p>';
+    if (slotEl) slotEl.classList.remove('slot-loaded');
+    if (statEl) { statEl.textContent = 'No directory selected'; statEl.style.color = ''; }
+  } else {
+    listEl.innerHTML = items.map(f =>
+      `<div class="flex items-center gap-2 py-0.5">
+         <span class="text-green-500 text-xs">✓</span>
+         <span class="text-xs font-medium text-slate-700">${esc(f.serviceName)}</span>
+       </div>`).join('');
+    if (slotEl) slotEl.classList.add('slot-loaded');
+    if (statEl) { statEl.textContent = `${items.length} service${items.length !== 1 ? 's' : ''} found`; statEl.style.color = '#16a34a'; }
+  }
+}
+
+function clearHelmDir(which) {
+  helmDirData[which] = [];
+  updateHelmDirDisplay(which);
+}
+
+function initHelmDirListeners() {
+  ['A', 'B'].forEach(which => {
+    const input = document.getElementById(`helmInput${which}`);
+    if (!input) return;
+    input.addEventListener('change', async function () {
+      const files = [...this.files].filter(f => /\.(ya?ml)$/i.test(f.name));
+      if (!files.length) return;
+
+      helmDirData[which] = [];
+
+      for (const file of files) {
+        try {
+          const text = await file.text();
+          const flat = flattenYaml(text);
+
+          let serviceName = null;
+          if (file.webkitRelativePath) {
+            const parts = file.webkitRelativePath.split('/');
+            if (parts.length >= 2) serviceName = parts[parts.length - 2];
+          }
+          if (!serviceName) serviceName = extractServiceName(flat, file.name);
+
+          const props = stripServicePrefix(flat, serviceName);
+          helmDirData[which].push({ serviceName, props });
+        } catch (err) {
+          showHelmError('warn', `Parse error: ${file.name}`, err.message);
+        }
+      }
+
+      updateHelmDirDisplay(which);
+    });
+  });
+}
+
+// Expand tab characters correctly (tab stops every 8 columns)
+function expandTabs(text) {
+  return text.split('\n').map(line => {
+    let result = '';
+    let col = 0;
+    for (const ch of line) {
+      if (ch === '\t') {
+        const spaces = 8 - (col % 8);
+        result += ' '.repeat(spaces);
+        col += spaces;
+      } else {
+        result += ch;
+        col++;
+      }
+    }
+    return result;
+  }).join('\n');
+}
+
+// Flatten a Helm YAML file to a dot-notation key-value map.
+// Handles: mixed tabs/spaces, "key:value" (no space), serviceProperties as key=value block.
+function flattenYaml(text) {
+  const lines = expandTabs(text.replace(/\r\n/g, '\n')).split('\n');
+  const result = {};
+  const stack = [];   // [{indent: number, path: string}]
+  let inServiceProps = false;
+  let spBaseIndent = -1;
+  let spBasePath = '';
+
+  for (const rawLine of lines) {
+    if (!rawLine.trim()) continue;
+
+    const indent  = rawLine.length - rawLine.trimStart().length;
+    const content = rawLine.trim();
+
+    if (content.startsWith('#')) continue;
+
+    // Handle serviceProperties content lines
+    if (inServiceProps) {
+      if (indent <= spBaseIndent) {
+        inServiceProps = false;
+        // Fall through to process this line as normal YAML
+      } else {
+        if (!content.startsWith('#')) {
+          const eqIdx = content.indexOf('=');
+          if (eqIdx > 0) {
+            const k = content.slice(0, eqIdx).trim();
+            const v = content.slice(eqIdx + 1).trim();
+            if (k) result[`${spBasePath}.${k}`] = v;
+          }
+        }
+        continue;
+      }
+    }
+
+    // Adjust stack for current indent level
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) {
+      stack.pop();
+    }
+
+    // Find first colon to split key from value
+    const colonIdx = content.indexOf(':');
+    if (colonIdx < 0) continue;
+
+    const rawKey = content.slice(0, colonIdx).trim();
+    if (!rawKey || /[\s#\[\]{}&*!|>'"@`]/.test(rawKey)) continue;  // skip non-simple keys
+
+    const value = content.slice(colonIdx + 1).trim();
+    const parentPath = stack.length > 0 ? stack[stack.length - 1].path : '';
+    const fullPath = parentPath ? `${parentPath}.${rawKey}` : rawKey;
+
+    stack.push({ indent, path: fullPath });
+
+    if (value && value !== '|' && value !== '>') {
+      result[fullPath] = value.replace(/^['"]|['"]$/g, '');
+    } else if (!value) {
+      // Check for serviceProperties trigger
+      if (rawKey.toLowerCase() === 'serviceproperties') {
+        inServiceProps = true;
+        spBaseIndent = indent;
+        spBasePath = fullPath;
+      }
+    }
+  }
+
+  return result;
+}
+
+// Extract the service name from the YAML flat map or filename.
+// Looks for pattern: helm-chart.microservices.<name>.*
+function extractServiceName(flatMap, filename) {
+  for (const key of Object.keys(flatMap)) {
+    const m = key.match(/^[^.]+\.microservices\.([^.]+)\./);
+    if (m) return m[1];
+  }
+  // Fallback: strip extension from filename
+  return (filename || '').replace(/\.[^.]+$/, '') || 'unknown';
+}
+
+// Strip the common helm-chart.microservices.{name}. prefix so comparison keys are clean.
+function stripServicePrefix(flatMap, serviceName) {
+  const candidates = [
+    `helm-chart.microservices.${serviceName}.`,
+    `helmchart.microservices.${serviceName}.`,
+  ];
+  // Find the first matching prefix
+  const prefix = candidates.find(p => Object.keys(flatMap).some(k => k.startsWith(p)));
+
+  if (!prefix) return flatMap;
+
+  const result = {};
+  for (const [k, v] of Object.entries(flatMap)) {
+    result[k.startsWith(prefix) ? k.slice(prefix.length) : k] = v;
+  }
+  return result;
+}
+
+// Compare services across all branches. Returns rows and aggregate stats.
+function compareHelmBranches(branchData) {
+  const branches = Object.keys(branchData);
+
+  const allServices = new Set();
+  branches.forEach(b => Object.keys(branchData[b] || {}).forEach(s => allServices.add(s)));
+
+  const rows = [];
+  let totalDiff = 0, totalMissing = 0, totalMatch = 0;
+  const servicesWithDiff = new Set();
+
+  for (const svc of [...allServices].sort()) {
+    const allProps = new Set();
+    branches.forEach(b => Object.keys(branchData[b]?.[svc] || {}).forEach(k => allProps.add(k)));
+
+    const svcRows = [];
+    for (const prop of [...allProps].sort()) {
+      const values = branches.map(b => branchData[b]?.[svc]?.[prop] ?? null);
+      const nonNull = values.filter(v => v !== null);
+
+      let status;
+      if (nonNull.length === 0)             status = 'UNKNOWN';
+      else if (nonNull.length < values.length) status = 'MISSING';
+      else status = new Set(nonNull).size === 1 ? 'MATCH' : 'DIFF';
+
+      svcRows.push({ svc, prop, values, status });
+
+      if (status === 'DIFF')    { totalDiff++;    servicesWithDiff.add(svc); }
+      else if (status === 'MISSING') { totalMissing++; servicesWithDiff.add(svc); }
+      else if (status === 'MATCH')   totalMatch++;
+    }
+
+    // Sort within service: diffs first, then missing, then match, alpha within each group
+    const order = { DIFF:0, MISSING:1, UNKNOWN:2, MATCH:3 };
+    svcRows.sort((a, b) => (order[a.status]??3) - (order[b.status]??3) || a.prop.localeCompare(b.prop));
+    rows.push(...svcRows);
+  }
+
+  return {
+    rows,
+    stats: {
+      totalServices: allServices.size,
+      servicesWithDiff: servicesWithDiff.size,
+      totalDiff,
+      totalMissing,
+      totalMatch,
+    }
+  };
+}
+
+function renderHelmResults(rows, branches, stats) {
+  set_text('helmStatServices', stats.totalServices);
+  set_text('helmStatDiff',     stats.totalDiff);
+  set_text('helmStatMissing',  stats.totalMissing);
+  set_text('helmStatMatch',    stats.totalMatch);
+
+  const colSpan = 2 + branches.length + 1;
+
+  // Table header
+  document.getElementById('helmResultsHead').innerHTML =
+    `<tr class="bg-slate-50 border-b border-slate-200 text-left">
+      <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">Service</th>
+      <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide min-w-[12rem]">Property</th>
+      ${branches.map(b => `<th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide border-l border-slate-200 min-w-[8rem]">
+        <span class="branch-pill">${esc(b)}</span>
+      </th>`).join('')}
+      <th class="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-center w-24">Status</th>
+    </tr>`;
+
+  // Table body
+  let html = '';
+  let currentSvc = null;
+
+  for (const row of rows) {
+    if (row.svc !== currentSvc) {
+      currentSvc = row.svc;
+      html += `<tr class="section-sep"><td colspan="${colSpan}">${esc(row.svc)}</td></tr>`;
+    }
+
+    const rowCls = row.status === 'DIFF'    ? 'row-diff'
+                 : row.status === 'MISSING' ? 'row-miss'
+                 : row.status === 'MATCH'   ? 'row-match' : '';
+
+    const valCells = row.values.map(v => {
+      if (v === null) return `<td class="px-4 py-2.5 border-l border-slate-100"><span class="img-null">—</span></td>`;
+      const display = v.length > 80 ? v.slice(0, 80) + '…' : v;
+      const cls = row.status === 'DIFF' ? 'text-red-700 font-semibold' : '';
+      return `<td class="px-4 py-2.5 border-l border-slate-100 mono text-xs ${cls} break-all" title="${esc(v)}">${esc(display)}</td>`;
+    }).join('');
+
+    html += `<tr class="${rowCls} border-b border-slate-100 transition-colors" data-status="${row.status}">
+      <td class="px-4 py-2.5 text-slate-300 text-xs select-none"></td>
+      <td class="px-4 py-2.5 mono text-xs text-slate-700 font-medium">${esc(row.prop)}</td>
+      ${valCells}
+      <td class="px-4 py-2.5 text-center">${helmBadge(row.status)}</td>
+    </tr>`;
+  }
+
+  if (!rows.length) {
+    html = `<tr><td colspan="${colSpan}" class="text-center py-14 text-slate-400 text-sm">
+      No services found. Check file format — expected Helm values YAML with <code class="bg-slate-100 px-1 rounded">serviceProperties</code> block.
+    </td></tr>`;
+  }
+
+  document.getElementById('helmResultsBody').innerHTML = html;
+
+  // Reset diffs-only state
+  _helmDiffsOnly = false;
+  const btn = document.getElementById('helmDiffsOnlyBtn');
+  if (btn) { btn.textContent = 'Show diffs only'; btn.classList.remove('active'); }
+
+  const el = document.getElementById('helmResults');
+  el.classList.remove('hidden');
+  el.classList.add('fade-up');
+  setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+}
+
+function helmBadge(status) {
+  switch (status) {
+    case 'DIFF':    return `<span class="badge badge-diff"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M6 18L18 6M6 6l12 12"/></svg>DIFF</span>`;
+    case 'MATCH':   return `<span class="badge badge-match"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>MATCH</span>`;
+    case 'MISSING': return `<span class="badge badge-missing" style="font-size:10px">MISSING</span>`;
+    default:        return `<span class="text-slate-300 text-xs">—</span>`;
+  }
+}
+
+function toggleHelmDiffsOnly() {
+  _helmDiffsOnly = !_helmDiffsOnly;
+  const btn = document.getElementById('helmDiffsOnlyBtn');
+  btn.textContent = _helmDiffsOnly ? 'Show all' : 'Show diffs only';
+  btn.classList.toggle('active', _helmDiffsOnly);
+
+  const tbody = document.getElementById('helmResultsBody');
+  const trs = [...tbody.querySelectorAll('tr')];
+
+  // First pass: show/hide data rows
+  for (const tr of trs) {
+    if (tr.dataset.status) {
+      tr.style.display = (_helmDiffsOnly && tr.dataset.status === 'MATCH') ? 'none' : '';
+    }
+  }
+
+  // Second pass: hide section separators whose service has no visible rows
+  let i = 0;
+  while (i < trs.length) {
+    const tr = trs[i];
+    if (tr.classList.contains('section-sep')) {
+      let hasVisible = false;
+      let j = i + 1;
+      while (j < trs.length && !trs[j].classList.contains('section-sep')) {
+        if (trs[j].style.display !== 'none') hasVisible = true;
+        j++;
+      }
+      tr.style.display = hasVisible ? '' : 'none';
+    }
+    i++;
+  }
+}
+
+function setHelmLoading(show, msg, detail) {
+  document.getElementById('helmLoadingState').classList.toggle('hidden', !show);
+  document.getElementById('helmCompareBtn').disabled = show;
+  if (show && msg)    document.getElementById('helmLoadingMsg').textContent    = msg;
+  if (show && detail) document.getElementById('helmLoadingDetail').textContent = detail;
+  if (!show) { document.getElementById('helmLoadingDetail').textContent = ''; }
+}
+
+function showHelmError(type, title, msg) {
+  const el = document.getElementById('helmErrorBanner');
+  el.className = type === 'warn'
+    ? 'rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3 text-amber-800'
+    : 'rounded-xl border border-red-200 bg-red-50 px-5 py-4 flex items-start gap-3 text-red-800';
+  document.getElementById('helmErrorTitle').textContent = title;
+  document.getElementById('helmErrorMsg').textContent   = msg;
+  el.classList.remove('hidden');
+}
+
+const HELM_STORE_KEY = 'deploy-cmp-helm-v1';
+function saveHelmConfig() {
+  localStorage.setItem(HELM_STORE_KEY, JSON.stringify({
+    orgUrl  : v('helmOrgUrl'),
+    project : v('helmProject'),
+    repo    : v('helmRepo'),
+    branches: v('helmBranches'),
+    basePath: v('helmBasePath'),
+  }));
+}
+function loadHelmConfig() {
+  try {
+    const c = JSON.parse(localStorage.getItem(HELM_STORE_KEY) || '{}');
+    if (c.orgUrl)    set('helmOrgUrl',    c.orgUrl);
+    if (c.project)   set('helmProject',   c.project);
+    if (c.repo)      set('helmRepo',      c.repo);
+    if (c.branches)  set('helmBranches',  c.branches);
+    if (c.basePath)  set('helmBasePath',  c.basePath);
+  } catch (_) {}
+  const savedMode = localStorage.getItem('deploy-cmp-helm-mode');
+  if (savedMode === 'manual') setHelmMode('manual');
+}
+
+// Discover service folder names at basePath in one branch using the ADO items API
+async function discoverHelmServices(orgUrl, project, repo, basePath, branch, pat) {
+  const base  = orgUrl.replace(/\/+$/, '');
+  const token = btoa(':' + pat);
+  const url   = `${base}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/items`
+    + `?scopePath=${encodeURIComponent(basePath)}`
+    + `&recursionLevel=OneLevel`
+    + `&versionDescriptor.version=${encodeURIComponent(branch)}`
+    + `&versionDescriptor.versionType=Branch`
+    + `&api-version=7.0`;
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Basic ${token}`, 'Accept': 'application/json' }
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const hint = res.status === 401 ? ' (invalid PAT or no access)'
+               : res.status === 404 ? ` (path "${basePath}" not found in branch "${branch}")`
+               : '';
+    throw new Error(`HTTP ${res.status}${hint}`);
+  }
+  const json = await res.json();
+  const normalizedBase = basePath.replace(/\/+$/, '');
+  const services = [];
+  for (const item of (json.value || [])) {
+    if (item.isFolder) {
+      const itemPath = item.path.replace(/\/+$/, '');
+      if (itemPath !== normalizedBase) {
+        const parts = itemPath.split('/');
+        const name = parts[parts.length - 1];
+        if (name) services.push(name);
+      }
+    }
+  }
+  return services;
+}
+
+async function runHelmComparison() {
+  document.getElementById('helmErrorBanner').classList.add('hidden');
+  document.getElementById('helmResults').classList.add('hidden');
+
+  if (helmMode === 'online') {
+    const orgUrl    = v('helmOrgUrl').trim();
+    const project   = v('helmProject').trim();
+    const repo      = v('helmRepo').trim();
+    const branchRaw = v('helmBranches').trim();
+    const basePath  = v('helmBasePath').trim() || '/';
+    const pat       = document.getElementById('helmPat').value.trim();
+
+    if (!orgUrl || !project || !repo || !branchRaw || !pat) {
+      showHelmError('error', 'Missing fields',
+        'Fill in Org URL, Project, Repository, Branches, Base Path, and PAT.');
+      return;
+    }
+
+    const branches = branchRaw.split(',').map(b => b.trim()).filter(Boolean);
+    saveHelmConfig();
+
+    // Step 1: Discover services from the first branch
+    setHelmLoading(true, 'Discovering services…', `Base path: ${basePath}  Branch: ${branches[0]}`);
+    let services;
+    try {
+      services = await discoverHelmServices(orgUrl, project, repo, basePath, branches[0], pat);
+    } catch (e) {
+      setHelmLoading(false);
+      showHelmError('error', 'Service discovery failed', e.message);
+      return;
+    }
+    if (!services.length) {
+      setHelmLoading(false);
+      showHelmError('error', 'No services found',
+        `No sub-folders found at "${basePath}" in branch "${branches[0]}". Check the Base Path field.`);
+      return;
+    }
+
+    // Step 2: Fetch each service file from each branch
+    const branchData = {};
+    const errors = [];
+
+    try {
+      for (let bi = 0; bi < branches.length; bi++) {
+        const branch = branches[bi];
+        branchData[branch] = {};
+        for (let si = 0; si < services.length; si++) {
+          const svcName = services[si];
+          const filePath = `${basePath.replace(/\/+$/, '')}/${svcName}/${svcName}.yaml`;
+          setHelmLoading(true,
+            `Branch ${bi+1}/${branches.length}: ${branch}`,
+            `Service ${si+1}/${services.length}: ${svcName}`);
+          try {
+            const text = await fetchBranchFile(orgUrl, project, repo, filePath, branch, pat);
+            const flat = flattenYaml(text);
+            const detectedName = extractServiceName(flat, svcName);
+            const props = stripServicePrefix(flat, detectedName);
+            branchData[branch][detectedName || svcName] = props;
+          } catch (e) {
+            errors.push(`${branch} / ${svcName}: ${e.message}`);
+          }
+        }
+      }
+
+      setHelmLoading(false);
+
+      const hasAnyData = Object.values(branchData).some(b => Object.keys(b).length > 0);
+      if (!hasAnyData) {
+        showHelmError('error', 'All fetches failed', errors.join('\n'));
+        return;
+      }
+
+      const { rows, stats } = compareHelmBranches(branchData);
+      renderHelmResults(rows, branches, stats);
+
+      if (errors.length) {
+        showHelmError('warn', `${errors.length} file(s) failed to fetch`, errors.join('\n'));
+      }
+    } catch (e) {
+      setHelmLoading(false);
+      showHelmError('error', 'Comparison failed', e.message);
+    }
+
+  } else {
+    // Manual mode — compare two fixed directories A and B
+    const labelA = (v('helmLabelA') || 'Directory A').trim();
+    const labelB = (v('helmLabelB') || 'Directory B').trim();
+
+    if (!helmDirData.A.length && !helmDirData.B.length) {
+      showHelmError('error', 'No directories selected',
+        'Select at least one directory (A or B) before comparing.');
+      return;
+    }
+
+    const branches = [labelA, labelB];
+    const branchData = {
+      [labelA]: {},
+      [labelB]: {},
+    };
+    helmDirData.A.forEach(({ serviceName, props }) => { branchData[labelA][serviceName] = props; });
+    helmDirData.B.forEach(({ serviceName, props }) => { branchData[labelB][serviceName] = props; });
+
+    setHelmLoading(true, 'Comparing directories…');
+    await yieldToBrowser();
+
+    try {
+      const { rows, stats } = compareHelmBranches(branchData);
+      renderHelmResults(rows, branches, stats);
+      setHelmLoading(false);
+    } catch (e) {
+      setHelmLoading(false);
+      showHelmError('error', 'Comparison failed', e.message);
+    }
+  }
+}
+
+
+// ─────────────────────────── Manual upload slots (textarea-based) ───────────────────────────
+let _slotTimer = null;
+function debouncedSyncSlots() {
+  clearTimeout(_slotTimer);
+  _slotTimer = setTimeout(syncManualSlots, 350);
+}
+
+function syncManualSlots() {
+  const raw      = v('branchesManual').trim();
+  const branches = raw ? raw.split(',').map(b => b.trim()).filter(Boolean) : [];
+  const container = document.getElementById('manualSlots');
+
+  if (!branches.length) {
+    container.innerHTML = `<div class="flex items-center gap-2 p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <p class="text-xs text-slate-400">Enter branch labels above to generate upload slots.</p>
+    </div>`;
+    updateCountLabel();
+    return;
+  }
+
+  // Only rebuild when the branch list itself changed; content preserved via savedContent map
+  const existing = [...container.querySelectorAll('[data-branch]')].map(el => el.dataset.branch);
+  const isSame = existing.length === branches.length && branches.every((b, i) => b === existing[i]);
+  if (isSame) { updateCountLabel(); return; }
+
+  // Save existing textarea content so we don't lose it on rebuild
+  const savedContent  = {};
+  const savedStatuses = {};
+  container.querySelectorAll('[data-branch]').forEach(slot => {
+    const b = slot.dataset.branch;
+    savedContent[b]  = slot.querySelector('.branch-textarea')?.value || '';
+    savedStatuses[b] = slot.querySelector('.slot-status')?.textContent || '';
+  });
+
+  container.innerHTML = '';
+
+  branches.forEach(branch => {
+    const slot = document.createElement('div');
+    slot.dataset.branch = branch;
+    slot.className = 'branch-slot' + (savedContent[branch] ? ' slot-loaded' : '');
+
+    slot.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="branch-pill">${esc(branch)}</span>
+        <div class="flex items-center gap-2">
+          <span class="slot-status text-slate-400">${savedStatuses[branch] || 'No file loaded'}</span>
+          <label class="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-0.5 border border-blue-200 rounded-md hover:bg-blue-50 transition-all whitespace-nowrap">
+            <input type="file" accept=".txt,.log" class="sr-only">
+            Load file
+          </label>
+          <button class="clear-slot-btn text-slate-300 hover:text-red-400 text-sm leading-none" title="Clear">✕</button>
+        </div>
+      </div>
+      <textarea class="branch-textarea code-area w-full px-3 py-2 border border-slate-200 rounded-lg bg-white text-slate-700 focus:bg-white transition-colors" rows="3"
+        placeholder="Paste deploy.txt for branch '${esc(branch)}' here, or load a file above…"></textarea>
+    `;
+
+    // Restore saved content
+    const ta = slot.querySelector('.branch-textarea');
+    if (savedContent[branch]) ta.value = savedContent[branch];
+
+    // File load — uses file.text() (modern, synchronous-feeling, no FileReader race)
+    slot.querySelector('input[type=file]').addEventListener('change', async function () {
+      const file = this.files[0];
+      if (!file) return;
+      try {
+        const content = await file.text();
+        ta.value = content;
+        setSlotStatus(slot, `✓ ${file.name}`, '#16a34a');
+        updateCountLabel();
+      } catch (err) {
+        showError('error', 'File read failed', `Could not read "${file.name}": ${err.message}`);
+      }
+    });
+
+    // Manual paste also updates the count / status
+    ta.addEventListener('input', () => {
+      if (ta.value.trim()) setSlotStatus(slot, 'Content ready', '#16a34a');
+      else setSlotStatus(slot, 'No file loaded', '');
+      updateCountLabel();
+    });
+
+    // Clear button
+    slot.querySelector('.clear-slot-btn').addEventListener('click', () => {
+      ta.value = '';
+      slot.querySelector('input[type=file]').value = '';
+      slot.classList.remove('slot-loaded');
+      setSlotStatus(slot, 'No file loaded', '');
+      updateCountLabel();
+    });
+
+    // Drag-and-drop onto the whole slot
+    slot.addEventListener('dragover', e => { e.preventDefault(); slot.classList.add('ring-2', 'ring-indigo-300'); });
+    slot.addEventListener('dragleave', () => slot.classList.remove('ring-2', 'ring-indigo-300'));
+    slot.addEventListener('drop', async e => {
+      e.preventDefault();
+      slot.classList.remove('ring-2', 'ring-indigo-300');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      try {
+        const content = await file.text();
+        ta.value = content;
+        setSlotStatus(slot, `✓ ${file.name}`, '#16a34a');
+        updateCountLabel();
+      } catch (_) {}
+    });
+
+    container.appendChild(slot);
+  });
+
+  updateCountLabel();
+}
+
+function setSlotStatus(slot, text, color) {
+  const el = slot.querySelector('.slot-status');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || '';
+  slot.classList.toggle('slot-loaded', !!color);
+}
+
+function updateCountLabel() {
+  const slots  = [...document.querySelectorAll('#manualSlots [data-branch]')];
+  const loaded = slots.filter(s => s.querySelector('.branch-textarea')?.value.trim()).length;
+  const total  = slots.length;
+  const span   = document.getElementById('manualUploadCount');
+  if (!span) return;
+  span.textContent = total === 0 ? ''
+    : loaded === 0 ? `— ${total} slot${total !== 1 ? 's' : ''} ready`
+    : loaded === total ? `— ✓ all ${total} ready`
+    : `— ${loaded}/${total} ready`;
+  span.style.color = loaded === total && total > 0 ? '#16a34a' : '#94a3b8';
+}
+
+function clearAllManualFiles() {
+  document.querySelectorAll('#manualSlots [data-branch]').forEach(slot => {
+    const ta = slot.querySelector('.branch-textarea');
+    if (ta) ta.value = '';
+    const fi = slot.querySelector('input[type=file]');
+    if (fi) fi.value = '';
+    slot.classList.remove('slot-loaded');
+    setSlotStatus(slot, 'No file loaded', '');
+  });
+  updateCountLabel();
+}
+
+
+// ─────────────────────────── Config persistence ───────────────────────────
+const STORE_KEY = 'deploy-cmp-v2';
+
+function saveConfig() {
+  localStorage.setItem(STORE_KEY, JSON.stringify({
+    orgUrl   : v('orgUrl'),
+    project  : v('project'),
+    repoName : v('repoName'),
+    filePath : v('filePath'),
+    branches : v('branches'),
+    branchesManual: v('branchesManual'),
+  }));
+}
+
+function loadConfig() {
+  try {
+    const c = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+    if (c.orgUrl)   set('orgUrl',   c.orgUrl);
+    if (c.project)  set('project',  c.project);
+    if (c.repoName) set('repoName', c.repoName);
+    if (c.filePath) set('filePath', c.filePath);
+    if (c.branches) set('branches', c.branches);
+    if (c.branchesManual) { set('branchesManual', c.branchesManual); syncManualSlots(); }
+  } catch (_) {}
+
+  // Restore modes
+  const savedMode = localStorage.getItem('deploy-cmp-mode');
+  if (savedMode === 'manual') setMode('manual');
+
+  const savedKubeMode = localStorage.getItem('deploy-cmp-kube-mode');
+  if (savedKubeMode === 'live') setKubeMode('live');
+  else onEnvChange();
+
+  loadHelmConfig();
+
+  const savedPage = localStorage.getItem('deploy-cmp-page');
+  if (savedPage && savedPage !== 'images') setPage(savedPage);
+}
+
+['orgUrl','project','repoName','filePath','branches'].forEach(id => {
+  document.getElementById(id).addEventListener('input', saveConfig);
+});
+document.getElementById('branchesManual').addEventListener('input', saveConfig);
+
+['helmOrgUrl','helmProject','helmRepo','helmBranches','helmBasePath'].forEach(id => {
+  document.getElementById(id).addEventListener('input', saveHelmConfig);
+});
+initHelmDirListeners();
+
+
+// ─────────────────────────── Image normalisation helpers ───────────────────────────
+// Strip registry prefix: everything up to and including the last '/'
+// e.g.  registry.company.io/app1:v1.0.1  →  app1:v1.0.1
+function stripPrefix(img) {
+  if (!img) return '';
+  const i = img.lastIndexOf('/');
+  return i >= 0 ? img.slice(i + 1) : img;
+}
+
+// Build the comparison key from an image path + optional separate version column.
+// deploy.txt pattern: imagePath = "registry/app1", version = "v1.0.1"  →  "app1:v1.0.1"
+// kube.txt  pattern: imagePath = "registry/app1:v1.0.1"               →  "app1:v1.0.1"
+function buildCompareKey(imagePath, version) {
+  const base = stripPrefix(imagePath);
+  if (!base) return version || '';
+  // Only append version when the base doesn't already carry one (no ':' yet)
+  if (version && !base.includes(':')) return `${base}:${version}`;
+  return base;
+}
+
+
+// ─────────────────────────── YAML deploy.txt parser ───────────────────────────
+// Handles the nested structure:
+//   <any-root-key>:
+//       images:
+//           <service-name>:
+//               imagePath: <path>
+//               version:   <tag>
+function parseDeployYaml(text) {
+  const lines = text.split('\n');
+  const result = {};
+
+  let imagesLineIndent = -1;
+  let serviceIndent    = -1;
+  let currentService   = null;
+  let inImages         = false;
+
+  for (const rawLine of lines) {
+    if (!rawLine.trim()) continue;
+    const indent  = rawLine.length - rawLine.trimStart().length;
+    const content = rawLine.trimStart();
+
+    if (!inImages) {
+      if (/^images\s*:/.test(content)) {
+        inImages = true;
+        imagesLineIndent = indent;
+      }
+      continue;
+    }
+
+    // Exiting images block
+    if (indent <= imagesLineIndent) break;
+
+    if (serviceIndent === -1) serviceIndent = indent;
+
+    if (indent === serviceIndent) {
+      // Service-name line e.g. `    service1:`
+      const m = content.match(/^([\w.-]+)\s*:/);
+      if (m) {
+        currentService = m[1];
+        result[currentService] = { NAME: currentService, IMAGES: '', COMPARE_KEY: '', _ip: '', _ver: '' };
+      }
+    } else if (indent > serviceIndent && currentService) {
+      // Property line e.g. `        imagePath: com/xx/yy/app1-v1.0.1`
+      const m = content.match(/^([\w.-]+)\s*:\s*(.*)/);
+      if (m) {
+        const key = m[1].toLowerCase().replace(/[-_]/g, '');
+        const val = m[2].trim().replace(/^['"]|['"]$/g, '');
+        if (key === 'imagepath') result[currentService]._ip  = val;
+        else if (key === 'version') result[currentService]._ver = val;
+      }
+    }
+  }
+
+  for (const svc of Object.keys(result)) {
+    const ip  = result[svc]._ip;
+    const ver = result[svc]._ver;
+    result[svc].IMAGES      = ip ? (ver ? `${ip}:${ver}` : ip) : ver;
+    result[svc].COMPARE_KEY = buildCompareKey(ip, ver);
+    delete result[svc]._ip;
+    delete result[svc]._ver;
+  }
+  return result;
+}
+
+// Returns true when text looks like indented YAML key:value (not kubectl tabular output)
+function looksLikeYaml(text) {
+  return /^\s{2,}[\w.-]+\s*:\s*\S/m.test(text);
+}
+
+// Auto-detects format and dispatches to the right parser
+function parseDeployTxt(text) {
+  return looksLikeYaml(text) ? parseDeployYaml(text) : parseKubectl(text);
+}
+
+
+// ─────────────────────────── kubectl / tabular file parser ───────────────────────────
+// Column aliases recognised in either file
+const IMG_COLS = ['IMAGES','IMAGE','IMAGEPATH','IMAGE_PATH','IMAGE PATH'];
+const VER_COLS = ['VERSION','TAG','APP_VERSION','IMAGE_TAG','APP_TAG','APPTAG','IMAGE VERSION'];
+
+function firstCol(colNames, candidates) {
+  for (const c of candidates) {
+    const i = colNames.indexOf(c);
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+function parseKubectl(text) {
+  const lines = text.trim().split('\n').filter(l => l.trim());
+  if (lines.length < 2) return {};
+
+  const header = lines[0];
+  const colStarts = [];
+  let inWord = false;
+  for (let i = 0; i < header.length; i++) {
+    if (header[i] !== ' ' && !inWord) { colStarts.push(i); inWord = true; }
+    else if (header[i] === ' ')        { inWord = false; }
+  }
+
+  const colNames = colStarts.map((s, i) => {
+    const e = i + 1 < colStarts.length ? colStarts[i + 1] : header.length;
+    return header.slice(s, e).trim().toUpperCase();
+  });
+
+  if (!colNames.includes('NAME')) return parseByWhitespace(lines);
+
+  const iName  = colNames.indexOf('NAME');
+  const iImg   = firstCol(colNames, IMG_COLS);   // image path column
+  const iVer   = firstCol(colNames, VER_COLS);   // separate version column (deploy.txt)
+  const iReady = colNames.indexOf('READY');
+
+  const result = {};
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const vals = colStarts.map((s, idx) => {
+      const e = idx + 1 < colStarts.length ? colStarts[idx + 1] : line.length;
+      return (line.slice(s, e) || '').trim();
+    });
+    const name = vals[iName];
+    if (!name) continue;
+
+    const rawImg = iImg >= 0 ? vals[iImg] : '';
+    const ver    = iVer >= 0 ? vals[iVer] : '';
+
+    result[name] = {
+      NAME       : name,
+      IMAGES     : rawImg || ver,                   // full string for display
+      COMPARE_KEY: buildCompareKey(rawImg, ver),    // normalised for diff logic
+      READY      : iReady >= 0 ? vals[iReady] : '',
+    };
+  }
+  return result;
+}
+
+function parseByWhitespace(lines) {
+  const result = {};
+  const start = /NAME|SERVICE/i.test(lines[0]) ? 1 : 0;
+  for (let i = start; i < lines.length; i++) {
+    const parts = lines[i].trim().split(/\s+/);
+    if (!parts[0]) continue;
+    const image = parts.find(p => p.includes('/') || p.includes(':')) || parts[parts.length - 1] || '';
+    const key   = buildCompareKey(image, '');
+    result[parts[0]] = { NAME: parts[0], IMAGES: image, COMPARE_KEY: key, READY: '' };
+  }
+  return result;
+}
+
+
+// ─────────────────────────── Azure DevOps fetch ───────────────────────────
+async function fetchBranchFile(orgUrl, project, repo, filePath, branch, pat) {
+  const base  = orgUrl.replace(/\/+$/, '');
+  const token = btoa(':' + pat);
+  const url   = `${base}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repo)}/items`
+    + `?path=${encodeURIComponent(filePath)}`
+    + `&versionDescriptor.version=${encodeURIComponent(branch)}`
+    + `&versionDescriptor.versionType=Branch`
+    + `&$format=text`
+    + `&api-version=7.0`;
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Basic ${token}`, 'Accept': 'text/plain' }
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const hint = res.status === 401 ? ' (invalid PAT or no access)'
+               : res.status === 404 ? ' (branch or file not found)'
+               : '';
+    throw new Error(`HTTP ${res.status}${hint} — ${body.slice(0, 300)}`);
+  }
+  return res.text();
+}
+
+
+// ─────────────────────────── Comparison engine ───────────────────────────
+function compare(kubeData, branchResults) {
+  const all = new Set(Object.keys(kubeData));
+  branchResults.forEach(({ data }) => Object.keys(data).forEach(s => all.add(s)));
+
+  const rows = [];
+  for (const svc of all) {
+    const kube     = kubeData[svc] || null;
+    // compareKey = normalised short form: "imageName:version" (no registry prefix)
+    const kubeKey  = kube?.COMPARE_KEY || null;
+    const kubeImg  = kube?.IMAGES      || null;   // full path, for display only
+
+    const deploy = branchResults.map(({ branch, data }) => ({
+      branch,
+      image     : data[svc]?.IMAGES      || null, // full path display
+      compareKey: data[svc]?.COMPARE_KEY || null, // normalised for comparison
+    }));
+
+    const presentKeys = deploy.filter(d => d.compareKey).map(d => d.compareKey);
+
+    let status;
+    if (!kubeKey && presentKeys.length === 0) status = 'UNKNOWN';
+    else if (!kubeKey)                         status = 'KUBE_MISSING';
+    else if (presentKeys.length === 0)         status = 'DEPLOY_MISSING';
+    else if (presentKeys.every(k => k === kubeKey)) status = 'MATCH';
+    else status = 'DIFF';
+
+    rows.push({ svc, kubeKey, kubeImg, kubeReady: kube?.READY, deploy, status });
+  }
+
+  const order = { DIFF:0, DEPLOY_MISSING:1, KUBE_MISSING:1, UNKNOWN:2, MATCH:3 };
+  rows.sort((a, b) => (order[a.status]??3) - (order[b.status]??3) || a.svc.localeCompare(b.svc));
+  return rows;
+}
+
+
+// ─────────────────────────── Render ───────────────────────────
+function renderResults(rows, branches, failedBranches) {
+  const diffs = rows.filter(r => r.status === 'DIFF').length;
+  const miss  = rows.filter(r => r.status === 'DEPLOY_MISSING' || r.status === 'KUBE_MISSING').length;
+  const match = rows.filter(r => r.status === 'MATCH').length;
+
+  set_text('statTotal', rows.length);
+  set_text('statDiff',  diffs);
+  set_text('statMiss',  miss);
+  set_text('statMatch', match);
+
+  // Dynamic table head
+  const thead = document.getElementById('resultsHead');
+  let headHtml = `<tr class="bg-slate-50 border-b border-slate-200 text-left">
+    <th class="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-44">Service</th>
+    <th class="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Kubernetes Image</th>`;
+
+  branches.forEach(b => {
+    const failed = failedBranches.includes(b);
+    headHtml += `<th class="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+      <span class="branch-pill">${esc(b)}</span>
+      ${failed ? '<span class="ml-1 text-red-400 text-[10px]">✕ failed</span>' : ''}
+      <br><span class="text-[10px] font-normal normal-case tracking-normal text-slate-400">deploy image</span>
+    </th>`;
+  });
+
+  headHtml += `<th class="px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-center w-32">Status</th></tr>`;
+  thead.innerHTML = headHtml;
+
+  // Build rows
+  const tbody = document.getElementById('resultsBody');
+  let bodyHtml = '';
+  let inMatchSection = false;
+  const hasIssues = rows.some(r => r.status !== 'MATCH');
+
+  rows.forEach(r => {
+    if (!inMatchSection && r.status === 'MATCH' && hasIssues) {
+      inMatchSection = true;
+      bodyHtml += `<tr class="section-sep"><td colspan="${2 + branches.length + 1}">Matching Services</td></tr>`;
+    }
+
+    const rowCls = r.status === 'DIFF' ? 'row-diff'
+                 : (r.status === 'DEPLOY_MISSING' || r.status === 'KUBE_MISSING') ? 'row-miss'
+                 : r.status === 'MATCH' ? 'row-match' : '';
+
+    // Kube cell: show normalised key prominently, full path dimmed below
+    const kubeCell = r.kubeKey
+      ? `<div class="mono text-xs">${formatImg(r.kubeKey, false)}</div>
+         ${r.kubeImg && r.kubeImg !== r.kubeKey
+           ? `<div class="text-[10px] text-slate-300 mono leading-tight mt-0.5 truncate max-w-xs" title="${esc(r.kubeImg)}">${esc(r.kubeImg)}</div>` : ''}
+         ${r.kubeReady ? `<span class="text-xs text-slate-400">${esc(r.kubeReady)}</span>` : ''}`
+      : `<span class="img-null">not found in kube.txt</span>`;
+
+    let deployCols = '';
+    branches.forEach((_, i) => {
+      const d = r.deploy[i];
+      if (!d || !d.compareKey) {
+        deployCols += `<td class="px-5 py-3.5 border-l border-slate-100"><span class="img-null">not in branch</span></td>`;
+        return;
+      }
+      // Diff is decided on normalised keys only
+      const isDiff = r.kubeKey && d.compareKey !== r.kubeKey;
+      deployCols += `<td class="px-5 py-3.5 border-l border-slate-100">
+        <div class="mono text-xs">${formatImg(d.compareKey, isDiff)}</div>
+        ${d.image && d.image !== d.compareKey
+          ? `<div class="text-[10px] text-slate-300 mono leading-tight mt-0.5 truncate max-w-xs" title="${esc(d.image)}">${esc(d.image)}</div>` : ''}
+      </td>`;
+    });
+
+    bodyHtml += `<tr class="${rowCls} border-b border-slate-100 transition-colors">
+      <td class="px-5 py-3.5 font-semibold text-slate-800 text-sm">${esc(r.svc)}</td>
+      <td class="px-5 py-3.5">${kubeCell}</td>
+      ${deployCols}
+      <td class="px-5 py-3.5 text-center">${statusBadge(r.status)}</td>
+    </tr>`;
+  });
+
+  if (rows.length === 0) {
+    bodyHtml = `<tr><td colspan="${2 + branches.length + 1}" class="text-center py-14 text-slate-400 text-sm">
+      No services found. Check that files contain a NAME column.</td></tr>`;
+  }
+
+  tbody.innerHTML = bodyHtml;
+
+  const resultsEl = document.getElementById('results');
+  resultsEl.classList.remove('hidden');
+  resultsEl.classList.add('fade-up');
+  setTimeout(() => resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+
+  const badge = document.getElementById('lastRunBadge');
+  badge.textContent = `Last run: ${new Date().toLocaleTimeString()}`;
+  badge.classList.remove('hidden');
+}
+
+function formatImg(img, isDiff) {
+  if (!img) return '<span class="img-null">—</span>';
+  const ci = img.lastIndexOf(':');
+  if (ci > 0) {
+    const repo = esc(img.slice(0, ci + 1));
+    const tag  = esc(img.slice(ci + 1));
+    const cls  = isDiff ? 'img-tag-diff' : 'img-tag';
+    return `<span class="text-slate-500">${repo}</span><span class="${cls}">${tag}</span>`;
+  }
+  const cls = isDiff ? 'img-tag-diff' : 'img-tag';
+  return `<span class="${cls}">${esc(img)}</span>`;
+}
+
+function statusBadge(status) {
+  switch (status) {
+    case 'DIFF':
+      return `<span class="badge badge-diff">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M6 18L18 6M6 6l12 12"/></svg>DIFF</span>`;
+    case 'MATCH':
+      return `<span class="badge badge-match">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 13l4 4L19 7"/></svg>MATCH</span>`;
+    case 'DEPLOY_MISSING':
+      return `<span class="badge badge-missing">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>NOT IN ADO</span>`;
+    case 'KUBE_MISSING':
+      return `<span class="badge badge-missing">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>NOT IN KUBE</span>`;
+    default:
+      return `<span class="text-slate-300 text-xs">—</span>`;
+  }
+}
+
+
+// ─────────────────────────── Main orchestrator ───────────────────────────
+async function runComparison() {
+  hideError();
+  document.getElementById('results').classList.add('hidden');
+
+  // ── Step 1: get kube data (paste or live) ──────────────────
+  let kubeData;
+  if (kubeMode === 'live') {
+    const ns = v('kubeNamespace').trim();
+    if (!ns) {
+      showError('error', 'Namespace missing', 'Enter a namespace in the Kubernetes State panel.');
+      return;
+    }
+    try {
+      setLoading(true, 'Fetching live Kubernetes data…', `Namespace: ${ns}`);
+      kubeData = parseKubeJSON(await fetchKubeDeployments(ns));
+      setLoading(false);
+    } catch (e) {
+      setLoading(false);
+      showError('error', 'Kubernetes fetch failed', e.message);
+      return;
+    }
+  } else {
+    const kubeText = v('kubeContent').trim();
+    if (!kubeText) {
+      showError('error', 'Kubernetes data missing', 'Paste the kubectl output into the Kubernetes State panel.');
+      return;
+    }
+    kubeData = parseKubectl(kubeText);
+  }
+
+  // ── Step 2: get deploy data (online ADO fetch or manual upload) ──
+  if (adoMode === 'online') {
+    const orgUrl   = v('orgUrl').trim();
+    const project  = v('project').trim();
+    const repoName = v('repoName').trim();
+    const filePath = v('filePath').trim() || '/deploy.txt';
+    const pat      = v('pat').trim();
+    const branchRaw= v('branches').trim();
+
+    if (!orgUrl || !project || !repoName || !pat || !branchRaw) {
+      showError('error', 'Missing fields', 'Fill in Organization URL, Project, Repository, Branches, and PAT.');
+      return;
+    }
+
+    const branches = branchRaw.split(',').map(b => b.trim()).filter(Boolean);
+    saveConfig();
+    setLoading(true, `Fetching deploy.txt from ${branches.length} branch${branches.length > 1 ? 'es' : ''}…`);
+
+    try {
+      const branchResults = [];
+      const failedBranches = [];
+
+      for (let i = 0; i < branches.length; i++) {
+        const branch = branches[i];
+        setLoadingDetail(`Branch ${i + 1}/${branches.length}: ${branch}`);
+        try {
+          const text = await fetchBranchFile(orgUrl, project, repoName, filePath, branch, pat);
+          branchResults.push({ branch, data: parseDeployTxt(text), error: null });
+        } catch (e) {
+          branchResults.push({ branch, data: {}, error: e.message });
+          failedBranches.push(branch);
+        }
+      }
+
+      const successCount = branchResults.filter(b => !b.error).length;
+      if (successCount === 0) {
+        const detail = branchResults.map(b => `• ${b.branch}: ${b.error}`).join('\n');
+        throw new Error(`All branch fetches failed:\n${detail}`);
+      }
+
+      setLoading(false);
+      renderResults(compare(kubeData, branchResults), branches, failedBranches);
+
+      if (failedBranches.length) {
+        showError('warn', `${failedBranches.length} branch(es) failed to fetch`,
+          failedBranches.map(b => `• ${b}: ${branchResults.find(r => r.branch === b)?.error}`).join('\n'));
+      }
+    } catch (e) {
+      setLoading(false);
+      showError('error', 'Comparison failed', e.message);
+    }
+
+  } else {
+    // ── MANUAL mode ──────────────────────────────────────────
+    const branchRaw = v('branchesManual').trim();
+    if (!branchRaw) {
+      showError('error', 'No branches defined', 'Enter branch labels in the Branch Labels field.');
+      return;
+    }
+
+    const branches = branchRaw.split(',').map(b => b.trim()).filter(Boolean);
+
+    const allSlots = [...document.querySelectorAll('#manualSlots [data-branch]')];
+    const getSlotContent = branch => {
+      const slot = allSlots.find(s => s.dataset.branch === branch);
+      return slot ? (slot.querySelector('.branch-textarea')?.value.trim() || '') : '';
+    };
+
+    const loadedBranches = branches.filter(b => getSlotContent(b));
+    if (loadedBranches.length === 0) {
+      showError('error', 'No content provided',
+        'Upload a file or paste deploy.txt content into at least one slot.');
+      return;
+    }
+
+    setLoading(true, 'Comparing…', `${loadedBranches.length}/${branches.length} slots have content`);
+
+    try {
+      const branchResults = branches.map(branch => {
+        const content = getSlotContent(branch);
+        return {
+          branch,
+          data : content ? parseDeployTxt(content) : {},
+          error: content ? null : 'no content provided',
+        };
+      });
+
+      const failedBranches = branchResults.filter(b => b.error).map(b => b.branch);
+
+      setLoading(false);
+      renderResults(compare(kubeData, branchResults), branches, failedBranches);
+
+      if (failedBranches.length) {
+        showError('warn', `${failedBranches.length} slot(s) had no content`,
+          failedBranches.map(b => `• ${b}: no content provided`).join('\n'));
+      }
+    } catch (e) {
+      setLoading(false);
+      showError('error', 'Comparison failed', e.message);
+    }
+  }
+}
+
+
+// ─────────────────────────── UI helpers ───────────────────────────
+function setLoading(show, msg, detail) {
+  const el  = document.getElementById('loadingState');
+  const btn = document.getElementById('compareBtn');
+  if (show) {
+    el.classList.remove('hidden');
+    btn.disabled = true;
+    if (msg)    document.getElementById('loadingMsg').textContent    = msg;
+    if (detail) document.getElementById('loadingDetail').textContent = detail;
+  } else {
+    el.classList.add('hidden');
+    btn.disabled = false;
+  }
+}
+
+function setLoadingDetail(t) {
+  document.getElementById('loadingDetail').textContent = t;
+}
+
+function showError(type, title, msg) {
+  const el = document.getElementById('errorBanner');
+  el.className = type === 'warn'
+    ? 'rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3 text-amber-800'
+    : 'rounded-xl border border-red-200 bg-red-50 px-5 py-4 flex items-start gap-3 text-red-800';
+  document.getElementById('errorTitle').textContent = title;
+  document.getElementById('errorMsg').textContent   = msg;
+  el.classList.remove('hidden');
+}
+
+function hideError() {
+  document.getElementById('errorBanner').classList.add('hidden');
+}
+
+function handleKubeUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => { document.getElementById('kubeContent').value = ev.target.result; };
+  reader.readAsText(file);
+}
+
+function loadSampleKube() {
+  document.getElementById('kubeContent').value =
+`NAME                  READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS            IMAGES                                          SELECTOR
+auth-service          3/3     3            3           14d   auth-service          registry.company.io/auth-service:v2.3.1         app=auth-service
+payment-service       2/2     2            2           7d    payment-service       registry.company.io/payment-service:v1.0.4      app=payment-service
+order-service         1/1     1            1           2d    order-service         registry.company.io/order-service:v1.0.8        app=order-service
+notification-svc      3/3     3            3           30d   notification-svc      registry.company.io/notification-svc:v3.0.0     app=notification-svc
+api-gateway           2/2     2            2           20d   api-gateway           registry.company.io/api-gateway:v1.5.2          app=api-gateway`;
+}
+
+function clearKube() {
+  document.getElementById('kubeContent').value = '';
+}
+
+// ─── tiny DOM utils ───
+const v        = id => document.getElementById(id).value;
+const set      = (id, val) => { document.getElementById(id).value = val; };
+const set_text = (id, val) => { document.getElementById(id).textContent = val; };
+const esc      = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');
+
+// Enter key triggers compare
+document.querySelectorAll('input[type=text], input[type=password]').forEach(el => {
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') runComparison(); });
+});
+
+loadConfig();
+</script>
+</body>
+</html>
