@@ -2,9 +2,9 @@
 setlocal enabledelayedexpansion
 
 :: ============================================================
-::  K8s Backup Script
-::  Phase 1 : kubectl bulk dumps (one call per data type)
-::  Phase 2 : PowerShell splits JSON into per-service files
+::  K8s Backup — 7 kubectl calls per namespace, that's it.
+::  No per-service loops. Everything extracted at NS level.
+::  Total calls = 7 x number of namespaces
 :: ============================================================
 
 :: ── CONFIG — edit these ──────────────────────────────────────
@@ -27,6 +27,7 @@ echo.
 echo  =========================================================
 echo   K8s Backup  ^|  %YYYY%-%MM%-%DD%  %HH%:%MIN%
 echo   Output : %BACKUP_ROOT%
+echo   Strategy : 7 kubectl calls per namespace only
 echo  =========================================================
 echo.
 
@@ -41,141 +42,84 @@ mkdir "%BACKUP_ROOT%" 2>nul
 
 :: ── SUMMARY LOG ──────────────────────────────────────────────
 set SUMMARY=%BACKUP_ROOT%\backup-summary.txt
-echo K8s Backup Summary  > "%SUMMARY%"
-echo Date : %YYYY%-%MM%-%DD% >> "%SUMMARY%"
-echo Time : %HH%:%MIN%       >> "%SUMMARY%"
-echo.                        >> "%SUMMARY%"
+echo K8s Backup Summary                 >  "%SUMMARY%"
+echo Date : %YYYY%-%MM%-%DD%           >> "%SUMMARY%"
+echo Time : %HH%:%MIN%                 >> "%SUMMARY%"
+echo Namespaces : %NAMESPACES%         >> "%SUMMARY%"
+echo.                                  >> "%SUMMARY%"
 
 :: ════════════════════════════════════════════════════════════
-::  PHASE 1 — one kubectl call per data type per namespace
+::  7 CALLS PER NAMESPACE — all services captured in each file
+::  The diff viewer HTML parses these by service name
 :: ════════════════════════════════════════════════════════════
 for %%N in (%NAMESPACES%) do (
-    echo [%%N] Fetching from cluster...
+    echo [%%N] Running 7 kubectl calls...
     mkdir "%BACKUP_ROOT%\%%N" 2>nul
+    set NDIR=%BACKUP_ROOT%\%%N
 
-    echo   deployments json...
-    %KUBECTL% get deployments -n %%N -o json > "%BACKUP_ROOT%\%%N\_deployments.json" 2>nul
+    :: CALL 1 — Replica counts for all services
+    echo   1/7 replicas...
+    %KUBECTL% get deployments -n %%N ^
+        -o custom-columns="NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas" ^
+        > "!NDIR!\replicas.txt" 2>nul
 
-    echo   configmaps json...
-    %KUBECTL% get configmaps -n %%N -o json  > "%BACKUP_ROOT%\%%N\_configmaps.json"  2>nul
+    :: CALL 2 — Image details for all services
+    echo   2/7 images...
+    %KUBECTL% get deployments -n %%N ^
+        -o custom-columns="NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image" ^
+        > "!NDIR!\images.txt" 2>nul
 
-    echo   pods wide...
-    %KUBECTL% get pods -n %%N -o wide        > "%BACKUP_ROOT%\%%N\_pods-wide.txt"    2>nul
+    :: CALL 3 — Resource limits for all services
+    echo   3/7 resources...
+    %KUBECTL% get deployments -n %%N ^
+        -o custom-columns="NAME:.metadata.name,CPU-REQ:.spec.template.spec.containers[0].resources.requests.cpu,CPU-LIM:.spec.template.spec.containers[0].resources.limits.cpu,MEM-REQ:.spec.template.spec.containers[0].resources.requests.memory,MEM-LIM:.spec.template.spec.containers[0].resources.limits.memory" ^
+        > "!NDIR!\resources.txt" 2>nul
 
-    echo   replica summary...
-    %KUBECTL% get deployments -n %%N -o custom-columns="NAMESPACE:.metadata.namespace,NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas" > "%BACKUP_ROOT%\%%N\_replicas-summary.txt" 2>nul
+    :: CALL 4 — All configmaps data as jsonpath key=value per service
+    echo   4/7 configmaps...
+    %KUBECTL% get configmaps -n %%N ^
+        -o jsonpath="{range .items[*]}---{.metadata.name}{'\n'}{range .data}{@key}={@value}{'\n'}{end}{end}" ^
+        > "!NDIR!\configmaps.txt" 2>nul
 
-    echo   image summary...
-    %KUBECTL% get deployments -n %%N -o custom-columns="NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image" > "%BACKUP_ROOT%\%%N\_images-summary.txt" 2>nul
+    :: CALL 5 — Pod status for all services
+    echo   5/7 pods...
+    %KUBECTL% get pods -n %%N -o wide ^
+        > "!NDIR!\pods.txt" 2>nul
+
+    :: CALL 6 — Full deployment spec as YAML (source of truth)
+    echo   6/7 deployments yaml...
+    %KUBECTL% get deployments -n %%N -o yaml ^
+        > "!NDIR!\deployments.yaml" 2>nul
+
+    :: CALL 7 — Service list (used by diff viewer to enumerate services)
+    echo   7/7 service list...
+    %KUBECTL% get deployments -n %%N ^
+        -o jsonpath="{range .items[*]}{.metadata.name}{'\n'}{end}" ^
+        > "!NDIR!\services.txt" 2>nul
 
     echo   [%%N] done.
     echo.
+
     echo === Namespace: %%N === >> "%SUMMARY%"
-    type "%BACKUP_ROOT%\%%N\_replicas-summary.txt" >> "%SUMMARY%" 2>nul
+    type "!NDIR!\replicas.txt" >> "%SUMMARY%" 2>nul
     echo. >> "%SUMMARY%"
-)
-
-:: ════════════════════════════════════════════════════════════
-::  PHASE 2 — write PowerShell script to disk, then run it
-::  (avoids all ^ escaping issues with inline -Command)
-:: ════════════════════════════════════════════════════════════
-set PS1=%BACKUP_ROOT%\split.ps1
-
-echo $backupRoot  = '%BACKUP_ROOT%'                                          > "%PS1%"
-echo $namespaces  = '%NAMESPACES%' -split ' '                               >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo foreach ($ns in $namespaces) {                                          >> "%PS1%"
-echo     $nsDir   = Join-Path $backupRoot $ns                               >> "%PS1%"
-echo     $depFile = Join-Path $nsDir '_deployments.json'                    >> "%PS1%"
-echo     $cmFile  = Join-Path $nsDir '_configmaps.json'                     >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo     if (-not (Test-Path $depFile)) {                                    >> "%PS1%"
-echo         Write-Host "  [$ns] No deployments JSON — skipping"            >> "%PS1%"
-echo         continue                                                        >> "%PS1%"
-echo     }                                                                   >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo     $depJson = Get-Content $depFile -Raw                               >> "%PS1%"
-echo     $deps    = ($depJson ^| ConvertFrom-Json).items                    >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo     $cms = @()                                                          >> "%PS1%"
-echo     if (Test-Path $cmFile) {                                            >> "%PS1%"
-echo         $cmJson = Get-Content $cmFile -Raw                             >> "%PS1%"
-echo         $cms    = ($cmJson ^| ConvertFrom-Json).items                  >> "%PS1%"
-echo     }                                                                   >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo     foreach ($dep in $deps) {                                           >> "%PS1%"
-echo         $svc    = $dep.metadata.name                                   >> "%PS1%"
-echo         $svcDir = Join-Path $nsDir $svc                                >> "%PS1%"
-echo         New-Item -ItemType Directory -Force -Path $svcDir ^| Out-Null  >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         $c   = $dep.spec.template.spec.containers[0]                   >> "%PS1%"
-echo         $req = $c.resources.requests                                   >> "%PS1%"
-echo         $lim = $c.resources.limits                                     >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         # replicas.txt                                                  >> "%PS1%"
-echo         $repLines = @(                                                  >> "%PS1%"
-echo             "Namespace : $ns",                                          >> "%PS1%"
-echo             "Service   : $svc",                                         >> "%PS1%"
-echo             "Desired   : $($dep.spec.replicas)",                        >> "%PS1%"
-echo             "Ready     : $($dep.status.readyReplicas)",                 >> "%PS1%"
-echo             "Available : $($dep.status.availableReplicas)"              >> "%PS1%"
-echo         )                                                               >> "%PS1%"
-echo         $repLines ^| Set-Content (Join-Path $svcDir 'replicas.txt')    >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         # image.txt                                                     >> "%PS1%"
-echo         $imgLines = @(                                                  >> "%PS1%"
-echo             "Namespace  : $ns",                                         >> "%PS1%"
-echo             "Service    : $svc",                                        >> "%PS1%"
-echo             "Full Image : $($c.image)"                                  >> "%PS1%"
-echo         )                                                               >> "%PS1%"
-echo         $imgLines ^| Set-Content (Join-Path $svcDir 'image.txt')       >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         # resources.txt                                                 >> "%PS1%"
-echo         $resLines = @(                                                  >> "%PS1%"
-echo             "Namespace      : $ns",                                     >> "%PS1%"
-echo             "Service        : $svc",                                    >> "%PS1%"
-echo             "CPU Request    : $($req.cpu)",                             >> "%PS1%"
-echo             "CPU Limit      : $($lim.cpu)",                             >> "%PS1%"
-echo             "Memory Request : $($req.memory)",                          >> "%PS1%"
-echo             "Memory Limit   : $($lim.memory)"                          >> "%PS1%"
-echo         )                                                               >> "%PS1%"
-echo         $resLines ^| Set-Content (Join-Path $svcDir 'resources.txt')   >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         # configmap.txt — find matching configmap                       >> "%PS1%"
-echo         $cmMatch = $cms ^| Where-Object {                              >> "%PS1%"
-echo             $_.metadata.name -eq "$svc-config" -or                     >> "%PS1%"
-echo             $_.metadata.name -eq $svc                                  >> "%PS1%"
-echo         } ^| Select-Object -First 1                                    >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         if ($cmMatch -and $cmMatch.data) {                             >> "%PS1%"
-echo             $cmLines = $cmMatch.data.PSObject.Properties ^|            >> "%PS1%"
-echo                        ForEach-Object { "$($_.Name)=$($_.Value)" }     >> "%PS1%"
-echo             $cmLines ^| Set-Content (Join-Path $svcDir 'configmap.txt')>> "%PS1%"
-echo         } else {                                                        >> "%PS1%"
-echo             "NO_CONFIGMAP_FOUND" ^| Set-Content (Join-Path $svcDir 'configmap.txt') >> "%PS1%"
-echo         }                                                               >> "%PS1%"
-echo.                                                                        >> "%PS1%"
-echo         Write-Host "  [$ns] $svc — saved"                              >> "%PS1%"
-echo     }                                                                   >> "%PS1%"
-echo }                                                                       >> "%PS1%"
-echo Write-Host ""                                                           >> "%PS1%"
-echo Write-Host "Split complete."                                            >> "%PS1%"
-
-echo.
-echo Running PowerShell split...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%"
-
-if errorlevel 1 (
-    echo.
-    echo [ERROR] PowerShell split failed. Check %PS1% for details.
-    pause & exit /b 1
 )
 
 echo.
 echo  =========================================================
 echo   Backup Complete!
+echo   Total kubectl calls : %NAMESPACES: =+% namespaces x 7
 echo   Location : %BACKUP_ROOT%
 echo  =========================================================
+echo.
+echo Output per namespace:
+echo   replicas.txt       — replica counts  (all services)
+echo   images.txt         — image tags      (all services)
+echo   resources.txt      — cpu+mem limits  (all services)
+echo   configmaps.txt     --- delimited kv  (all configmaps)
+echo   pods.txt           — pod status      (all pods)
+echo   deployments.yaml   — full spec yaml  (all services)
+echo   services.txt       — service names   (one per line)
 echo.
 
 start "" "%BACKUP_ROOT%"
