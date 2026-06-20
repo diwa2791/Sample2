@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K8s Deployment Diff Viewer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root {
+  --bg:#0a0e1a; --bg2:#0f1525;
+  --glass:rgba(255,255,255,0.04); --glass-border:rgba(255,255,255,0.10);
+  --glass-hover:rgba(255,255,255,0.07); --glass-strong:rgba(255,255,255,0.08);
+  --blue:#4f8ef7; --cyan:#22d3ee; --purple:#a78bfa;
+  --green:#34d399; --yellow:#fbbf24; --red:#f87171;
+  --blue-glow:rgba(79,142,247,0.20); --green-glow:rgba(52,211,153,0.20);
+  --purple-glow:rgba(167,139,250,0.20); --yellow-glow:rgba(251,191,36,0.15);
+  --red-glow:rgba(248,113,113,0.20);
+  --text:#e2e8f0; --text-muted:#94a3b8; --text-dim:#475569;
+  --radius-md:10px; --radius-lg:16px; --radius-xl:22px;
+  --font-ui:'Inter',system-ui,sans-serif; --font-mono:'JetBrains Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;-webkit-font-smoothing:antialiased}
+body{font-family:var(--font-ui);background:var(--bg);color:var(--text);min-height:100vh;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% 0%,rgba(79,142,247,0.12) 0%,transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 100%,rgba(167,139,250,0.10) 0%,transparent 60%);}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px}
+
+/* HEADER */
+.header{padding:24px 32px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--blue),var(--purple));border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 0 24px var(--blue-glow)}
+.logo-text h1{font-size:18px;font-weight:700;letter-spacing:-.4px}
+.logo-text p{font-size:11px;color:var(--text-muted);margin-top:2px}
+
+/* UPLOAD */
+.upload-section{padding:24px 32px;display:grid;grid-template-columns:1fr auto 1fr;gap:20px;align-items:start}
+.upload-card{background:var(--glass);border:1.5px dashed var(--glass-border);border-radius:var(--radius-xl);padding:32px 24px;text-align:center;transition:all .2s;cursor:pointer;position:relative;overflow:hidden}
+.upload-card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .2s}
+.upload-card.pre::before{background:radial-gradient(circle at 50% 0%,var(--blue-glow),transparent 70%)}
+.upload-card.post::before{background:radial-gradient(circle at 50% 0%,var(--green-glow),transparent 70%)}
+.upload-card:hover{border-color:rgba(255,255,255,.25);transform:translateY(-2px)}
+.upload-card:hover::before{opacity:1}
+.upload-card.loaded.pre{border-style:solid;border-color:var(--blue);box-shadow:0 0 28px var(--blue-glow)}
+.upload-card.loaded.post{border-style:solid;border-color:var(--green);box-shadow:0 0 28px var(--green-glow)}
+.upload-icon{font-size:38px;margin-bottom:12px}
+.upload-card h3{font-size:14px;font-weight:600;margin-bottom:5px}
+.upload-card p{font-size:11px;color:var(--text-muted);line-height:1.6}
+.upload-badge{display:inline-block;margin-top:10px;padding:3px 12px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px}
+.upload-badge.pre{background:var(--blue-glow);color:var(--blue);border:1px solid rgba(79,142,247,.3)}
+.upload-badge.post{background:var(--green-glow);color:var(--green);border:1px solid rgba(52,211,153,.3)}
+.file-count{margin-top:10px;font-size:12px;color:var(--text-muted);min-height:18px}
+.file-count b{color:var(--text)}
+.file-preview{margin-top:8px;max-height:72px;overflow-y:auto;text-align:left;font-size:10px;font-family:var(--font-mono);color:var(--text-dim);line-height:1.7}
+input[type="file"]{display:none}
+.vs-divider{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding-top:32px}
+.vs-circle{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;box-shadow:0 0 20px var(--purple-glow)}
+.vs-line{width:1px;height:40px;background:var(--glass-border)}
+
+/* COMPARE BTN */
+.compare-bar{padding:0 32px 24px;display:flex;justify-content:center}
+.btn-compare{padding:13px 44px;background:linear-gradient(135deg,var(--blue),var(--purple));border:none;border-radius:50px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 24px var(--blue-glow);transition:all .2s;display:flex;align-items:center;gap:8px;font-family:var(--font-ui)}
+.btn-compare:hover{transform:translateY(-2px);box-shadow:0 8px 32px var(--blue-glow)}
+.btn-compare:disabled{opacity:.4;cursor:not-allowed;transform:none}
+
+/* SUMMARY BAR */
+.summary-bar{margin:0 32px 20px;background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--radius-xl);padding:18px 28px;display:flex;gap:24px;flex-wrap:wrap;align-items:center}
+.stat{text-align:center;min-width:56px}
+.stat .val{font-size:26px;font-weight:700;font-family:var(--font-mono);letter-spacing:-1px}
+.stat .lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.stat-div{width:1px;height:40px;background:var(--glass-border)}
+.c-blue{color:var(--blue)}.c-red{color:var(--red)}.c-yellow{color:var(--yellow)}
+.c-green{color:var(--green)}.c-cyan{color:var(--cyan)}
+
+/* CONTROLS */
+.controls-bar{margin:0 32px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.search-wrap{position:relative;flex:1;max-width:320px}
+.search-input{width:100%;background:var(--glass);border:1px solid var(--glass-border);border-radius:50px;padding:8px 14px 8px 34px;color:var(--text);font-size:12px;outline:none;transition:border-color .2s;font-family:var(--font-ui)}
+.search-input:focus{border-color:var(--blue)}
+.search-input::placeholder{color:var(--text-dim)}
+.srch-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:13px;pointer-events:none}
+.tgl-group{display:flex;gap:3px}
+.tgl{padding:7px 16px;border-radius:50px;border:1px solid var(--glass-border);background:transparent;color:var(--text-muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;font-family:var(--font-ui)}
+.tgl.on{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 0 12px var(--blue-glow)}
+.tgl:hover:not(.on){border-color:rgba(255,255,255,.25);color:var(--text)}
+.exp-btn{padding:7px 16px;border-radius:50px;border:1px solid var(--glass-border);background:var(--glass);color:var(--text-muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;margin-left:auto;font-family:var(--font-ui)}
+.exp-btn:hover{border-color:rgba(255,255,255,.25);color:var(--text)}
+
+/* CATEGORY TABS */
+.cat-tabs{margin:0 32px 20px;display:flex;gap:4px;border-bottom:1px solid var(--glass-border)}
+.cat-tab{padding:9px 20px;border-radius:var(--radius-md) var(--radius-md) 0 0;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--text-muted);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px;position:relative;bottom:-1px;font-family:var(--font-ui)}
+.cat-tab:hover{color:var(--text);background:var(--glass)}
+.cat-tab.on{background:var(--glass-strong);border-color:var(--glass-border);color:var(--text)}
+.tab-badge{font-size:10px;font-family:var(--font-mono);padding:1px 6px;border-radius:8px}
+.cat-tab.on .tab-badge{background:var(--blue-glow);color:var(--blue)}
+.cat-tab .tab-badge{background:rgba(255,255,255,.06);color:var(--text-dim)}
+
+/* SERVICE CARDS */
+.svc-list{padding:0 32px 48px;display:flex;flex-direction:column;gap:12px}
+.svc-card{background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--radius-xl);overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.svc-card.has-diff{border-color:rgba(251,191,36,.2);box-shadow:0 0 20px rgba(251,191,36,.05)}
+.svc-card.no-diff{border-color:rgba(52,211,153,.12)}
+.card-hdr{display:flex;align-items:center;gap:14px;padding:15px 22px;cursor:pointer;transition:background .15s;user-select:none}
+.card-hdr:hover{background:var(--glass-hover)}
+.svc-ico{width:36px;height:36px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.svc-ico.diff{background:rgba(251,191,36,.15);box-shadow:0 0 12px rgba(251,191,36,.2)}
+.svc-ico.ok{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.15)}
+.svc-name{font-size:14px;font-weight:600}
+.pills{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.pill{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.p-changed{background:rgba(251,191,36,.15);color:var(--yellow);border:1px solid rgba(251,191,36,.3)}
+.p-ok{background:rgba(52,211,153,.10);color:var(--green);border:1px solid rgba(52,211,153,.2)}
+.p-rm{background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+.chevron{font-size:16px;color:var(--text-dim);transition:transform .2s;flex-shrink:0}
+.chevron.open{transform:rotate(180deg)}
+.ns-pill{display:inline-block;padding:1px 8px;border-radius:6px;font-size:10px;font-family:var(--font-mono);background:rgba(167,139,250,.12);color:var(--purple);border:1px solid rgba(167,139,250,.25);margin-left:6px}
+.card-body{display:none;border-top:1px solid var(--glass-border)}
+.card-body.open{display:block}
+
+/* INNER TABS */
+.in-tabs{display:flex;gap:2px;padding:12px 18px 0;border-bottom:1px solid var(--glass-border);overflow-x:auto}
+.in-tab{padding:6px 14px;border-radius:var(--radius-md) var(--radius-md) 0 0;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--text-muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px;position:relative;bottom:-1px;white-space:nowrap;font-family:var(--font-ui)}
+.in-tab:hover{color:var(--text)}
+.in-tab.on{background:rgba(255,255,255,.05);border-color:var(--glass-border);color:var(--text)}
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.dot-y{background:var(--yellow);box-shadow:0 0 5px var(--yellow)}
+.dot-g{background:var(--green);box-shadow:0 0 5px var(--green)}
+.in-pane{display:none;padding:16px 20px}
+.in-pane.on{display:block}
+
+/* DIFF TABLE */
+.tbl-toolbar{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+.diff-wrap{overflow-x:auto;border-radius:var(--radius-md);border:1px solid var(--glass-border)}
+.diff-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.diff-tbl th{padding:9px 14px;text-align:left;font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);background:rgba(255,255,255,.03);border-bottom:1px solid var(--glass-border);white-space:nowrap}
+.diff-tbl td{padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+.diff-tbl tr:last-child td{border-bottom:none}
+.diff-tbl tr:hover td{background:rgba(255,255,255,.02)}
+.diff-tbl tr.r-changed{background:rgba(251,191,36,.04)}
+.diff-tbl tr.r-added{background:rgba(52,211,153,.04)}
+.diff-tbl tr.r-removed{background:rgba(248,113,113,.04)}
+.k{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);word-break:break-all;max-width:220px}
+.v-del{font-family:var(--font-mono);font-size:11px;color:var(--red);text-decoration:line-through;opacity:.85}
+.v-add{font-family:var(--font-mono);font-size:11px;color:var(--green)}
+.v-same{font-family:var(--font-mono);font-size:11px;color:var(--text-dim)}
+.v-nil{color:var(--text-dim);font-style:italic;font-size:11px}
+.badge{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600;white-space:nowrap}
+.b-changed{background:rgba(251,191,36,.15);color:var(--yellow)}
+.b-added{background:rgba(52,211,153,.12);color:var(--green)}
+.b-removed{background:rgba(248,113,113,.12);color:var(--red)}
+.b-same{background:rgba(255,255,255,.05);color:var(--text-dim)}
+
+/* MISSING PANEL */
+.miss-panel{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.miss-col{background:rgba(255,255,255,.02);border:1px solid var(--glass-border);border-radius:var(--radius-md);padding:14px}
+.miss-col h4{font-size:11px;font-weight:600;margin-bottom:8px}
+.miss-col h4.pre{color:var(--blue)}.miss-col h4.post{color:var(--green)}
+.miss-item{font-family:var(--font-mono);font-size:11px;padding:4px 8px;border-radius:4px;margin-bottom:3px;word-break:break-all;line-height:1.5}
+.mi-pre{background:rgba(248,113,113,.10);color:var(--red)}
+.mi-post{background:rgba(52,211,153,.10);color:var(--green)}
+.none-txt{color:var(--text-dim);font-size:11px;font-style:italic;padding:4px}
+
+/* MISC */
+.no-data{text-align:center;padding:22px;color:var(--text-dim);font-size:12px}
+.empty-state{text-align:center;padding:80px 32px;color:var(--text-dim)}
+.empty-state .icon{font-size:56px;margin-bottom:16px;opacity:.4}
+.empty-state h2{font-size:18px;font-weight:600;color:var(--text-muted);margin-bottom:8px}
+.empty-state p{font-size:13px;line-height:1.7;max-width:480px;margin:0 auto}
+.btn-ghost{padding:7px 16px;border-radius:50px;border:1px solid var(--glass-border);background:var(--glass);color:var(--text-muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;font-family:var(--font-ui)}
+.btn-ghost:hover{color:var(--text);border-color:rgba(255,255,255,.25)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">⎈</div>
+    <div class="logo-text">
+      <h1>K8s Deployment Diff Viewer</h1>
+      <p>Compare pre &amp; post deployment snapshots — service by service</p>
+    </div>
+  </div>
+  <button class="btn-ghost hidden" id="reset-btn" onclick="resetAll()">↺ Reset</button>
+</div>
+
+<div class="upload-section" id="upload-section">
+  <label class="upload-card pre" for="pre-input" id="pre-card">
+    <div class="upload-icon">📦</div>
+    <h3>Before Deployment</h3>
+    <p>Select the timestamp folder from<br>the BAT run <b>before</b> deploying</p>
+    <span class="upload-badge pre">PRE-DEPLOY</span>
+    <div class="file-count" id="pre-count"></div>
+    <div class="file-preview" id="pre-preview"></div>
+    <input type="file" id="pre-input" webkitdirectory multiple>
+  </label>
+  <div class="vs-divider">
+    <div class="vs-line"></div>
+    <div class="vs-circle">VS</div>
+    <div class="vs-line"></div>
+  </div>
+  <label class="upload-card post" for="post-input" id="post-card">
+    <div class="upload-icon">🚀</div>
+    <h3>After Deployment</h3>
+    <p>Select the timestamp folder from<br>the BAT run <b>after</b> deploying</p>
+    <span class="upload-badge post">POST-DEPLOY</span>
+    <div class="file-count" id="post-count"></div>
+    <div class="file-preview" id="post-preview"></div>
+    <input type="file" id="post-input" webkitdirectory multiple>
+  </label>
+</div>
+
+<div class="compare-bar" id="compare-bar">
+  <button class="btn-compare" id="compare-btn" onclick="runCompare()" disabled>⚡ Compare Snapshots</button>
+</div>
+
+<div id="results" class="hidden">
+  <div class="summary-bar" id="summary-bar"></div>
+  <div class="controls-bar">
+    <div class="search-wrap">
+      <span class="srch-icon">🔍</span>
+      <input class="search-input" id="search-inp" type="text" placeholder="Search service or namespace…" oninput="renderCards()">
+    </div>
+    <div class="tgl-group">
+      <button class="tgl on" id="tgl-all"  onclick="setFilter('all')">All Services</button>
+      <button class="tgl"    id="tgl-diff" onclick="setFilter('diff')">Diffs Only</button>
+    </div>
+    <button class="exp-btn" id="exp-btn" onclick="toggleExpandAll()">⊞ Expand All</button>
+  </div>
+  <div class="cat-tabs" id="cat-tabs"></div>
+  <div class="svc-list" id="svc-list"></div>
+</div>
+
+<div id="empty-state" class="empty-state">
+  <div class="icon">🗂️</div>
+  <h2>Upload Both Backup Folders</h2>
+  <p>Run <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px;font-size:12px">k8s-backup.bat</code> before and after deployment.<br>
+  Upload both generated timestamp folders here to see the full diff.</p>
+</div>
+
+<script>
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────
+let PRE = {}, POST = {};   // { 'namespace/filename': content }
+let DATA = [];             // processed diff per service
+let filter = 'all', cat = 'all', expanded = false;
+
+// ── Ingest uploaded folder ─────────────────────────────────────
+document.getElementById('pre-input').addEventListener('change',  e => ingest(e,'pre'));
+document.getElementById('post-input').addEventListener('change', e => ingest(e,'post'));
+
+async function ingest(e, side) {
+  const files = Array.from(e.target.files);
+  const store = {}, names = [];
+  for (const f of files) {
+    // webkitRelativePath: "20250522/09-15/default/replicas.txt"
+    // Key format we want: "default/replicas.txt"
+    const parts = f.webkitRelativePath.replace(/\\/g,'/').split('/');
+    // Drop the top folder (timestamp chosen by user), keep rest
+    const key = parts.slice(1).join('/');
+    try { store[key] = await f.text(); names.push(key); } catch(_) {}
+  }
+  if (side === 'pre') {
+    PRE = store;
+    document.getElementById('pre-card').classList.add('loaded');
+    document.getElementById('pre-count').innerHTML = `<b>${Object.keys(store).length}</b> files loaded`;
+    document.getElementById('pre-preview').innerHTML = names.slice(0,10).map(n=>`<div>${n}</div>`).join('')
+      + (names.length>10 ? `<div>…and ${names.length-10} more</div>` : '');
+  } else {
+    POST = store;
+    document.getElementById('post-card').classList.add('loaded');
+    document.getElementById('post-count').innerHTML = `<b>${Object.keys(store).length}</b> files loaded`;
+    document.getElementById('post-preview').innerHTML = names.slice(0,10).map(n=>`<div>${n}</div>`).join('')
+      + (names.length>10 ? `<div>…and ${names.length-10} more</div>` : '');
+  }
+  document.getElementById('compare-btn').disabled =
+    !(Object.keys(PRE).length && Object.keys(POST).length);
+}
+
+// ══ PARSERS — read namespace-level files, look up by service ══
+
+// Parse replicas.txt  (custom-columns output):
+// NAME                DESIRED  READY  AVAILABLE
+// api-gateway         3        3      3
+function parseReplicas(text, svc) {
+  if (!text) return {};
+  const lines = text.trim().split('\n');
+  for (const line of lines.slice(1)) {  // skip header
+    const cols = line.trim().split(/\s+/);
+    if (cols[0] === svc && cols.length >= 4) {
+      return { Desired: cols[1], Ready: cols[2], Available: cols[3] };
+    }
+  }
+  return {};
+}
+
+// Parse images.txt (custom-columns):
+// NAME              IMAGE
+// api-gateway       registry.io/api-gateway:2.3.1
+function parseImage(text, svc) {
+  if (!text) return {};
+  for (const line of text.trim().split('\n').slice(1)) {
+    const idx = line.search(/\s+/);
+    if (idx === -1) continue;
+    const name = line.substring(0, idx).trim();
+    const img  = line.substring(idx).trim();
+    if (name === svc) return { Image: img };
+  }
+  return {};
+}
+
+// Parse resources.txt (custom-columns):
+// NAME   CPU-REQ  CPU-LIM  MEM-REQ  MEM-LIM
+function parseResources(text, svc) {
+  if (!text) return {};
+  for (const line of text.trim().split('\n').slice(1)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols[0] === svc && cols.length >= 5) {
+      return {
+        'CPU Request':    cols[1],
+        'CPU Limit':      cols[2],
+        'Memory Request': cols[3],
+        'Memory Limit':   cols[4]
+      };
+    }
+  }
+  return {};
+}
+
+// Parse configmaps.txt (jsonpath output):
+// ---api-gateway-config
+// key1=value1
+// key2=value2
+// ---payment-service-config
+// ...
+function parseConfigmap(text, svc) {
+  if (!text) return {};
+  const blocks = text.split(/^---/m);
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    if (!lines.length) continue;
+    const cmName = lines[0].trim();
+    // Match: <svc>-config  OR  <svc>
+    if (cmName !== svc + '-config' && cmName !== svc) continue;
+    const obj = {};
+    for (const line of lines.slice(1)) {
+      const eq = line.indexOf('=');
+      if (eq === -1) continue;
+      const k = line.substring(0, eq).trim();
+      const v = line.substring(eq + 1).trim();
+      if (k) obj[k] = v;
+    }
+    return obj;
+  }
+  return {};
+}
+
+// Parse services.txt — one service name per line
+function parseServices(text) {
+  if (!text) return [];
+  return text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+}
+
+// ── Discover all namespaces from uploaded file keys ────────────
+function getNamespaces(store) {
+  const ns = new Set();
+  Object.keys(store).forEach(k => {
+    const parts = k.split('/');
+    if (parts.length >= 2) ns.add(parts[0]);
+  });
+  return [...ns];
+}
+
+// ── Diff two objects ───────────────────────────────────────────
+function diffObj(before, after) {
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...keys].map(k => {
+    const b = before[k], a = after[k];
+    if (b === undefined) return { key:k, before:null, after:a, type:'added' };
+    if (a === undefined) return { key:k, before:b, after:null, type:'removed' };
+    if (b !== a)         return { key:k, before:b, after:a,    type:'changed' };
+    return                      { key:k, before:b, after:a,    type:'same' };
+  }).sort((a,b) => ({changed:0,added:1,removed:2,same:3}[a.type] - {changed:0,added:1,removed:2,same:3}[b.type] || a.key.localeCompare(b.key)));
+}
+
+// ── Main compare ───────────────────────────────────────────────
+function runCompare() {
+  DATA = [];
+  // Collect all namespaces from both sides
+  const allNS = new Set([...getNamespaces(PRE), ...getNamespaces(POST)]);
+
+  allNS.forEach(ns => {
+    const pre  = f => PRE[`${ns}/${f}`]  || '';
+    const post = f => POST[`${ns}/${f}`] || '';
+
+    // Get service list — union of both sides
+    const preServices  = parseServices(pre('services.txt'));
+    const postServices = parseServices(post('services.txt'));
+    const allServices  = [...new Set([...preServices, ...postServices])];
+
+    allServices.forEach(svc => {
+      const repB = parseReplicas(pre('replicas.txt'), svc);
+      const repA = parseReplicas(post('replicas.txt'), svc);
+      const imgB = parseImage(pre('images.txt'), svc);
+      const imgA = parseImage(post('images.txt'), svc);
+      const resB = parseResources(pre('resources.txt'), svc);
+      const resA = parseResources(post('resources.txt'), svc);
+      const cmB  = parseConfigmap(pre('configmaps.txt'), svc);
+      const cmA  = parseConfigmap(post('configmaps.txt'), svc);
+
+      const repDiff = diffObj(repB, repA);
+      const imgDiff = diffObj(imgB, imgA);
+      const resDiff = diffObj(resB, resA);
+      const cmDiff  = diffObj(cmB,  cmA);
+
+      const changed = arr => arr.filter(r => r.type !== 'same').length;
+      const total   = changed(repDiff) + changed(imgDiff) + changed(resDiff) + changed(cmDiff);
+
+      DATA.push({
+        ns, svc,
+        repDiff, imgDiff, resDiff, cmDiff,
+        onlyPre:  cmDiff.filter(r => r.type === 'removed'),
+        onlyPost: cmDiff.filter(r => r.type === 'added'),
+        total, hasDiff: total > 0
+      });
+    });
+  });
+
+  DATA.sort((a,b) => (b.hasDiff - a.hasDiff) || a.svc.localeCompare(b.svc));
+  showResults();
+}
+
+// ══ RENDER ════════════════════════════════════════════════════
+
+function showResults() {
+  document.getElementById('empty-state').classList.add('hidden');
+  document.getElementById('upload-section').style.cssText = 'opacity:.45;pointer-events:none';
+  document.getElementById('compare-bar').style.display = 'none';
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('reset-btn').classList.remove('hidden');
+  renderSummary(); renderCatTabs(); renderCards();
+}
+
+function renderSummary() {
+  const total = DATA.length;
+  const ch    = DATA.filter(d => d.hasDiff).length;
+  const repCh = DATA.filter(d => d.repDiff.some(r => r.type !== 'same')).length;
+  const imgCh = DATA.filter(d => d.imgDiff.some(r => r.type !== 'same')).length;
+  const resCh = DATA.filter(d => d.resDiff.some(r => r.type !== 'same')).length;
+  const cmCh  = DATA.filter(d => d.cmDiff.some(r => r.type !== 'same')).length;
+  document.getElementById('summary-bar').innerHTML = `
+    <div class="stat"><div class="val c-blue">${total}</div><div class="lbl">Services</div></div>
+    <div class="stat-div"></div>
+    <div class="stat"><div class="val c-yellow">${ch}</div><div class="lbl">Changed</div></div>
+    <div class="stat-div"></div>
+    <div class="stat"><div class="val c-green">${total-ch}</div><div class="lbl">Clean</div></div>
+    <div class="stat-div"></div>
+    <div class="stat"><div class="val c-yellow">${repCh}</div><div class="lbl">Replica Δ</div></div>
+    <div class="stat-div"></div>
+    <div class="stat"><div class="val c-cyan">${imgCh}</div><div class="lbl">Image Δ</div></div>
+    <div class="stat-div"></div>
+    <div class="stat"><div class="val c-red">${resCh}</div><div class="lbl">Resource Δ</div></div>
+    <div class="stat-div"></div>
+    <div class="stat"><div class="val c-cyan">${cmCh}</div><div class="lbl">ConfigMap Δ</div></div>
+  `;
+}
+
+function renderCatTabs() {
+  const cats = [
+    {id:'all',       label:'All',           icon:'🗂️'},
+    {id:'replicas',  label:'Replicas',      icon:'⚖️'},
+    {id:'image',     label:'Image',         icon:'🐳'},
+    {id:'resources', label:'Resources',     icon:'⚙️'},
+    {id:'configmap', label:'ConfigMap',     icon:'📄'},
+    {id:'missing',   label:'Added/Removed', icon:'🔀'},
+  ];
+  const counts = {
+    all:       DATA.filter(d => d.hasDiff).length,
+    replicas:  DATA.filter(d => d.repDiff.some(r => r.type!=='same')).length,
+    image:     DATA.filter(d => d.imgDiff.some(r => r.type!=='same')).length,
+    resources: DATA.filter(d => d.resDiff.some(r => r.type!=='same')).length,
+    configmap: DATA.filter(d => d.cmDiff.some(r => r.type!=='same')).length,
+    missing:   DATA.filter(d => d.onlyPre.length+d.onlyPost.length>0).length,
+  };
+  document.getElementById('cat-tabs').innerHTML = cats.map(c => `
+    <button class="cat-tab${c.id===cat?' on':''}" onclick="setCat('${c.id}')">
+      ${c.icon} ${c.label} <span class="tab-badge">${counts[c.id]}</span>
+    </button>`).join('');
+}
+
+function renderCards() {
+  const list = document.getElementById('svc-list');
+  list.innerHTML = '';
+  const q = document.getElementById('search-inp').value.trim().toLowerCase();
+
+  let visible = DATA;
+  if (filter === 'diff') visible = visible.filter(d => d.hasDiff);
+  if (q) visible = visible.filter(d => d.svc.includes(q) || d.ns.includes(q));
+
+  // Category filter
+  if (cat === 'replicas')  visible = visible.filter(d => d.repDiff.some(r=>r.type!=='same'));
+  if (cat === 'image')     visible = visible.filter(d => d.imgDiff.some(r=>r.type!=='same'));
+  if (cat === 'resources') visible = visible.filter(d => d.resDiff.some(r=>r.type!=='same'));
+  if (cat === 'configmap') visible = visible.filter(d => d.cmDiff.some(r=>r.type!=='same'));
+  if (cat === 'missing')   visible = visible.filter(d => d.onlyPre.length+d.onlyPost.length>0);
+
+  if (!visible.length) {
+    list.innerHTML = '<div class="no-data" style="padding:48px">✅ No services match this filter.</div>';
+    return;
+  }
+
+  const defaultTab = (cat !== 'all') ? cat : 'replicas';
+
+  visible.forEach(d => {
+    const id     = (d.ns+'_'+d.svc).replace(/[^a-z0-9]/gi,'_');
+    const repCh  = d.repDiff.filter(r=>r.type!=='same').length;
+    const imgCh  = d.imgDiff.filter(r=>r.type!=='same').length;
+    const resCh  = d.resDiff.filter(r=>r.type!=='same').length;
+    const cmCh   = d.cmDiff.filter(r=>r.type!=='same').length;
+    const misCh  = d.onlyPre.length + d.onlyPost.length;
+    const pills  = [
+      repCh ? `<span class="pill p-changed">⚖️ Replicas ${repCh}</span>` : '',
+      imgCh ? `<span class="pill p-changed">🐳 Image ${imgCh}</span>`    : '',
+      resCh ? `<span class="pill p-changed">⚙️ Resources ${resCh}</span>`: '',
+      cmCh  ? `<span class="pill p-changed">📄 Config ${cmCh}</span>`    : '',
+      misCh ? `<span class="pill p-rm">🔀 Keys ${misCh}</span>`          : '',
+      !d.hasDiff ? `<span class="pill p-ok">✅ No Changes</span>`        : '',
+    ].join('');
+
+    const tabs = [
+      {id:'replicas',  label:'⚖️ Replicas',      cnt:repCh},
+      {id:'image',     label:'🐳 Image',          cnt:imgCh},
+      {id:'resources', label:'⚙️ Resources',      cnt:resCh},
+      {id:'configmap', label:'📄 ConfigMap',      cnt:cmCh},
+      {id:'missing',   label:'🔀 Added/Removed',  cnt:misCh},
+    ];
+
+    const div = document.createElement('div');
+    div.className = `svc-card ${d.hasDiff?'has-diff':'no-diff'}`;
+    div.innerHTML = `
+      <div class="card-hdr" onclick="toggleCard('${id}')">
+        <div class="svc-ico ${d.hasDiff?'diff':'ok'}">${d.hasDiff?'⚠️':'✅'}</div>
+        <div style="flex:1;min-width:0">
+          <div class="svc-name">${esc(d.svc)}<span class="ns-pill">${esc(d.ns)}</span></div>
+          <div class="pills">${pills}</div>
+        </div>
+        <div class="chevron" id="ch_${id}">⌄</div>
+      </div>
+      <div class="card-body" id="cb_${id}">
+        <div class="in-tabs">
+          ${tabs.map(t=>`
+            <button class="in-tab${t.id===defaultTab?' on':''}" onclick="switchTab('${id}','${t.id}',this)">
+              <span class="dot ${t.cnt>0?'dot-y':'dot-g'}"></span>
+              ${t.label}${t.cnt>0?` <span style="font-size:10px;color:var(--yellow);font-family:var(--font-mono)">(${t.cnt})</span>`:''}
+            </button>`).join('')}
+        </div>
+        <div class="in-pane${defaultTab==='replicas'?' on':''}"  id="${id}_replicas">${mkTable(d.repDiff, id+'_r')}</div>
+        <div class="in-pane${defaultTab==='image'?' on':''}"     id="${id}_image">${mkTable(d.imgDiff, id+'_i')}</div>
+        <div class="in-pane${defaultTab==='resources'?' on':''}" id="${id}_resources">${mkTable(d.resDiff, id+'_res')}</div>
+        <div class="in-pane${defaultTab==='configmap'?' on':''}" id="${id}_configmap">${mkTable(d.cmDiff, id+'_cm')}</div>
+        <div class="in-pane${defaultTab==='missing'?' on':''}"   id="${id}_missing">${mkMissing(d)}</div>
+      </div>`;
+    list.appendChild(div);
+
+    // Default to diffs-only view for tables that have diffs
+    requestAnimationFrame(() => applyDiffDefault(id+'_r'));
+    requestAnimationFrame(() => applyDiffDefault(id+'_i'));
+    requestAnimationFrame(() => applyDiffDefault(id+'_res'));
+    requestAnimationFrame(() => applyDiffDefault(id+'_cm'));
+  });
+}
+
+function applyDiffDefault(tid) {
+  const tbl = document.getElementById('t_'+tid);
+  if (!tbl) return;
+  const hasDiffs = tbl.querySelector('tr.r-changed,tr.r-added,tr.r-removed');
+  if (hasDiffs) tbl.querySelectorAll('tr[data-same]').forEach(r => r.style.display='none');
+  const btns = tbl.closest('.in-pane')?.querySelectorAll('.tgl-group .tgl');
+  if (btns && hasDiffs) { btns[0].classList.add('on'); btns[1].classList.remove('on'); }
+  else if (btns)         { btns[1].classList.add('on'); btns[0].classList.remove('on'); }
+}
+
+function mkTable(rows, tid) {
+  if (!rows.length) return '<div class="no-data">✅ No data available.</div>';
+  const diffCount = rows.filter(r=>r.type!=='same').length;
+  const trs = rows.map(r => `
+    <tr class="r-${r.type}"${r.type==='same'?' data-same="1"':''}>
+      <td class="k">${esc(r.key)}</td>
+      <td>${r.type==='same'?`<span class="v-same">${esc(r.before)}</span>`
+           :r.type==='added'?`<span class="v-nil">—</span>`
+           :`<span class="v-del">${esc(r.before)}</span>`}</td>
+      <td>${r.type==='same'?`<span class="v-same">${esc(r.after)}</span>`
+           :r.type==='removed'?`<span class="v-nil">—</span>`
+           :`<span class="v-add">${esc(r.after)}</span>`}</td>
+      <td><span class="badge b-${r.type}">${r.type.toUpperCase()}</span></td>
+    </tr>`).join('');
+  return `
+    <div class="tbl-toolbar">
+      <div class="tgl-group">
+        <button class="tgl" style="font-size:10px;padding:4px 12px" onclick="tblFilter('${tid}',this,'diff')">Diffs Only</button>
+        <button class="tgl" style="font-size:10px;padding:4px 12px" onclick="tblFilter('${tid}',this,'all')">Show All</button>
+      </div>
+      <span style="font-size:11px;color:var(--text-dim);margin-left:8px">
+        ${diffCount} diff${diffCount!==1?'s':''} / ${rows.length} total
+      </span>
+    </div>
+    <div class="diff-wrap">
+      <table class="diff-tbl" id="t_${tid}">
+        <thead><tr>
+          <th style="width:30%">Key / Field</th>
+          <th style="width:28%">📦 PRE (Before)</th>
+          <th style="width:28%">🚀 POST (After)</th>
+          <th style="width:14%">Type</th>
+        </tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>`;
+}
+
+function mkMissing(d) {
+  if (!d.onlyPre.length && !d.onlyPost.length)
+    return '<div class="no-data" style="padding:20px">✅ No config keys added or removed.</div>';
+  const preItems  = d.onlyPre.length
+    ? d.onlyPre.map(r=>`<div class="miss-item mi-pre">${esc(r.key)} = ${esc(r.before)}</div>`).join('')
+    : '<div class="none-txt">None</div>';
+  const postItems = d.onlyPost.length
+    ? d.onlyPost.map(r=>`<div class="miss-item mi-post">${esc(r.key)} = ${esc(r.after)}</div>`).join('')
+    : '<div class="none-txt">None</div>';
+  return `
+    <div class="miss-panel">
+      <div class="miss-col">
+        <h4 class="pre">📦 Only in PRE — removed after deploy (${d.onlyPre.length})</h4>${preItems}
+      </div>
+      <div class="miss-col">
+        <h4 class="post">🚀 Only in POST — added after deploy (${d.onlyPost.length})</h4>${postItems}
+      </div>
+    </div>`;
+}
+
+// ── Interaction handlers ───────────────────────────────────────
+function toggleCard(id) {
+  const b = document.getElementById('cb_'+id);
+  const c = document.getElementById('ch_'+id);
+  const open = b.classList.toggle('open');
+  c.classList.toggle('open', open);
+}
+
+function switchTab(id, tab, btn) {
+  const body = document.getElementById('cb_'+id);
+  body.querySelectorAll('.in-pane').forEach(p => p.classList.remove('on'));
+  body.querySelectorAll('.in-tab').forEach(t => t.classList.remove('on'));
+  document.getElementById(`${id}_${tab}`).classList.add('on');
+  btn.classList.add('on');
+}
+
+function tblFilter(tid, btn, mode) {
+  btn.closest('.tgl-group').querySelectorAll('.tgl').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  document.querySelectorAll(`#t_${tid} tr[data-same]`).forEach(r => r.style.display = mode==='diff'?'none':'');
+}
+
+function setFilter(f) {
+  filter = f;
+  document.getElementById('tgl-all').classList.toggle('on', f==='all');
+  document.getElementById('tgl-diff').classList.toggle('on', f==='diff');
+  renderCards();
+}
+
+function setCat(c) {
+  cat = c;
+  renderCatTabs();
+  renderCards();
+}
+
+function toggleExpandAll() {
+  expanded = !expanded;
+  document.querySelectorAll('.svc-card').forEach(card => {
+    const id = (card.querySelector('.svc-name')?.textContent||'').replace(/[^a-z0-9]/gi,'_');
+    const hdr = card.querySelector('.card-hdr');
+    if (hdr) hdr.click();
+  });
+  // simpler: toggle all directly
+  document.querySelectorAll('.card-body').forEach(b => b.classList.toggle('open', expanded));
+  document.querySelectorAll('.chevron').forEach(c => c.classList.toggle('open', expanded));
+  document.getElementById('exp-btn').textContent = expanded ? '⊟ Collapse All' : '⊞ Expand All';
+}
+
+function resetAll() {
+  PRE={}; POST={}; DATA=[];
+  filter='all'; cat='all'; expanded=false;
+  ['pre-input','post-input'].forEach(id => document.getElementById(id).value='');
+  ['pre-count','post-count','pre-preview','post-preview'].forEach(id => document.getElementById(id).innerHTML='');
+  ['pre-card','post-card'].forEach(id => document.getElementById(id).classList.remove('loaded'));
+  document.getElementById('upload-section').style.cssText='';
+  document.getElementById('compare-bar').style.display='';
+  document.getElementById('compare-btn').disabled=true;
+  document.getElementById('results').classList.add('hidden');
+  document.getElementById('empty-state').classList.remove('hidden');
+  document.getElementById('reset-btn').classList.add('hidden');
+}
+
+function esc(s) {
+  if (s==null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
