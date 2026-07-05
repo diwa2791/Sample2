@@ -1,77 +1,39 @@
-import os
-import json
-import yaml
+results = []
 
-ROOT = "configs"
+for each payload:
 
+    validation = validate(...)
 
-def validate_payload(payload):
-    errors = []
+    senderResult = send_request(...)
 
-    if "transactionId" not in payload:
-        errors.append("transactionId missing")
+    results.append({
 
-    if "amount" not in payload:
-        errors.append("amount missing")
+        "namespace": namespace,
 
-    elif payload["amount"] <= 0:
-        errors.append("amount should be > 0")
+        "service": service,
 
-    if "currency" not in payload:
-        errors.append("currency missing")
+        "scenario": scenario,
 
-    return errors
+        "endpoint": serviceConfig["endpoint"],
 
+        "validation": "PASS",
 
-for namespace in os.listdir(ROOT):
+        "validationErrors": [],
 
-    namespace_path = os.path.join(ROOT, namespace)
+        "httpStatus": senderResult["status"],
 
-    if not os.path.isdir(namespace_path):
-        continue
+        "responseValidation": "PASS",
 
-    for service in os.listdir(namespace_path):
+        "executionTime": senderResult["executionTime"],
 
-        service_path = os.path.join(namespace_path, service)
+        "result": "PASS",
 
-        config_file = os.path.join(service_path, "service.yaml")
+        "payload": json.dumps(payload, indent=4),
 
-        if not os.path.exists(config_file):
-            print(f"Skipping {service} - service.yaml missing")
-            continue
+        "response": senderResult["response"]
 
-        with open(config_file) as f:
-            config = yaml.safe_load(f)
+    })
 
-        print("=" * 60)
-        print(f"Namespace : {config['namespace']}")
-        print(f"Service   : {config['service']}")
-        print(f"Endpoint  : {config['endpoint']}")
-        print("=" * 60)
+reportFile = generate_report(results)
 
-        for payload_file in config["payloads"]:
-
-            payload_path = os.path.join(service_path, payload_file)
-
-            with open(payload_path) as f:
-                payload = json.load(f)
-
-            errors = validate_payload(payload)
-
-            print(f"\nPayload : {payload_file}")
-
-            if errors:
-                print("Validation FAILED")
-                for e in errors:
-                    print(" -", e)
-                continue
-
-            print("Validation PASSED")
-
-            print("\nPayload Content")
-            print(json.dumps(payload, indent=4))
-
-            print("\nWould POST to:")
-            print(f"http://localhost:{config['port']}{config['endpoint']}")
-
-print("\nCompleted.")
+print(f"\nHTML Report Generated : {reportFile}")
