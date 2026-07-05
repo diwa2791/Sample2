@@ -1,0 +1,45 @@
+import re
+
+
+def validate(payload, rules):
+
+    errors = []
+
+    for rule in rules["rules"]:
+
+        field = rule["field"]
+        rule_type = rule["type"]
+
+        value = payload.get(field)
+
+        if rule_type == "required":
+
+            if field not in payload:
+                errors.append(f"{field} is required")
+
+        elif rule_type == "notEmpty":
+
+            if not value:
+                errors.append(f"{field} cannot be empty")
+
+        elif rule_type == "equals":
+
+            if value != rule["value"]:
+                errors.append(f"{field} should be {rule['value']}")
+
+        elif rule_type == "greaterThan":
+
+            if value <= rule["value"]:
+                errors.append(f"{field} should be greater than {rule['value']}")
+
+        elif rule_type == "regex":
+
+            if not re.match(rule["value"], str(value)):
+                errors.append(f"{field} invalid")
+
+        elif rule_type == "allowedValues":
+
+            if value not in rule["values"]:
+                errors.append(f"{field} invalid")
+
+    return errors
