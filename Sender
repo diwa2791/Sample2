@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.request
 import urllib.error
 
@@ -10,37 +11,64 @@ def send_request(service_config, payload):
     data = json.dumps(payload).encode("utf-8")
 
     headers = service_config.get("headers", {})
+
     method = service_config.get("method", "POST")
 
-    req = urllib.request.Request(
+    request = urllib.request.Request(
         url=url,
         data=data,
         headers=headers,
         method=method
     )
 
+    start = time.time()
+
     try:
 
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:
+
+            end = time.time()
 
             return {
+
                 "success": True,
+
                 "status": response.status,
-                "body": response.read().decode("utf-8")
+
+                "response": response.read().decode("utf-8"),
+
+                "executionTime": round((end-start)*1000,2)
+
             }
 
     except urllib.error.HTTPError as e:
 
+        end = time.time()
+
         return {
+
             "success": False,
+
             "status": e.code,
-            "body": e.read().decode("utf-8")
+
+            "response": e.read().decode("utf-8"),
+
+            "executionTime": round((end-start)*1000,2)
+
         }
 
     except Exception as e:
 
+        end = time.time()
+
         return {
+
             "success": False,
+
             "status": 0,
-            "body": str(e)
+
+            "response": str(e),
+
+            "executionTime": round((end-start)*1000,2)
+
         }
