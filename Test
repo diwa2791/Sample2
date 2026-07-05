@@ -1,0 +1,77 @@
+import os
+import json
+import yaml
+
+ROOT = "configs"
+
+
+def validate_payload(payload):
+    errors = []
+
+    if "transactionId" not in payload:
+        errors.append("transactionId missing")
+
+    if "amount" not in payload:
+        errors.append("amount missing")
+
+    elif payload["amount"] <= 0:
+        errors.append("amount should be > 0")
+
+    if "currency" not in payload:
+        errors.append("currency missing")
+
+    return errors
+
+
+for namespace in os.listdir(ROOT):
+
+    namespace_path = os.path.join(ROOT, namespace)
+
+    if not os.path.isdir(namespace_path):
+        continue
+
+    for service in os.listdir(namespace_path):
+
+        service_path = os.path.join(namespace_path, service)
+
+        config_file = os.path.join(service_path, "service.yaml")
+
+        if not os.path.exists(config_file):
+            print(f"Skipping {service} - service.yaml missing")
+            continue
+
+        with open(config_file) as f:
+            config = yaml.safe_load(f)
+
+        print("=" * 60)
+        print(f"Namespace : {config['namespace']}")
+        print(f"Service   : {config['service']}")
+        print(f"Endpoint  : {config['endpoint']}")
+        print("=" * 60)
+
+        for payload_file in config["payloads"]:
+
+            payload_path = os.path.join(service_path, payload_file)
+
+            with open(payload_path) as f:
+                payload = json.load(f)
+
+            errors = validate_payload(payload)
+
+            print(f"\nPayload : {payload_file}")
+
+            if errors:
+                print("Validation FAILED")
+                for e in errors:
+                    print(" -", e)
+                continue
+
+            print("Validation PASSED")
+
+            print("\nPayload Content")
+            print(json.dumps(payload, indent=4))
+
+            print("\nWould POST to:")
+            print(f"http://localhost:{config['port']}{config['endpoint']}")
+
+print("\nCompleted.")
