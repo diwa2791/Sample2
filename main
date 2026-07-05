@@ -1,0 +1,77 @@
+import glob
+import os
+
+from utils import load_json
+from validator import validate
+from sender import send_request
+
+CONFIG_ROOT = "configs"
+GLOBAL_RULE = "rules/global.rules.json"
+
+for namespace in os.listdir(CONFIG_ROOT):
+
+    namespace_path = os.path.join(CONFIG_ROOT, namespace)
+
+    if not os.path.isdir(namespace_path):
+        continue
+
+    for service in os.listdir(namespace_path):
+
+        service_path = os.path.join(namespace_path, service)
+
+        service_config = load_json(
+            os.path.join(service_path, "service.json")
+        )
+
+        print("=" * 60)
+        print(service_config["service"])
+        print("=" * 60)
+
+        payloads = glob.glob(os.path.join(service_path, "*.json"))
+
+        for payload_file in payloads:
+
+            name = os.path.basename(payload_file)
+
+            if name == "service.json":
+                continue
+
+            if name.endswith(".rules.json"):
+                continue
+
+            print(f"\nProcessing {name}")
+
+            payload = load_json(payload_file)
+
+            rule_file = payload_file.replace(".json", ".rules.json")
+
+            if os.path.exists(rule_file):
+
+                print("Using Payload Rules")
+
+                rules = load_json(rule_file)
+
+            else:
+
+                print("Using Global Rules")
+
+                rules = load_json(GLOBAL_RULE)
+
+            errors = validate(payload, rules)
+
+            if errors:
+
+                print("Validation Failed")
+
+                for e in errors:
+                    print(e)
+
+                continue
+
+            print("Validation Passed")
+
+            response = send_request(service_config, payload)
+
+            print(response["status"])
+
+            print(response["body"])
