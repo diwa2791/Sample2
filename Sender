@@ -1,0 +1,46 @@
+import json
+import urllib.request
+import urllib.error
+
+
+def send_request(service_config, payload):
+
+    url = f"http://localhost:{service_config['port']}{service_config['endpoint']}"
+
+    data = json.dumps(payload).encode("utf-8")
+
+    headers = service_config.get("headers", {})
+    method = service_config.get("method", "POST")
+
+    req = urllib.request.Request(
+        url=url,
+        data=data,
+        headers=headers,
+        method=method
+    )
+
+    try:
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+
+            return {
+                "success": True,
+                "status": response.status,
+                "body": response.read().decode("utf-8")
+            }
+
+    except urllib.error.HTTPError as e:
+
+        return {
+            "success": False,
+            "status": e.code,
+            "body": e.read().decode("utf-8")
+        }
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "status": 0,
+            "body": str(e)
+        }
