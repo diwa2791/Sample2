@@ -1,0 +1,64 @@
+trigger: none
+
+pool:
+  name: 'YOUR_SELF_HOSTED_AGENT_POOL'   # Replace with your agent pool
+
+stages:
+- stage: VerifyEnvironment
+  displayName: "Verify Python & Kubernetes Environment"
+
+  jobs:
+  - job: Verify
+    displayName: "Environment Verification"
+
+    steps:
+
+    - checkout: self
+
+    - powershell: |
+        Write-Host "===== Agent Information ====="
+        Write-Host "Agent Name : $(Agent.Name)"
+        Write-Host "Agent OS   : $(Agent.OS)"
+        Write-Host "Work Folder: $(Build.SourcesDirectory)"
+      displayName: "Print Agent Details"
+
+    - powershell: |
+        Write-Host "===== Python ====="
+        python --version
+      displayName: "Verify Python"
+
+    - powershell: |
+        Write-Host "===== zkectl ====="
+
+        if (Test-Path ".\tools\zkectl\zkectl.exe") {
+            Write-Host "zkectl found."
+            .\tools\zkectl\zkectl.exe --help
+        }
+        else {
+            Write-Error "zkectl.exe not found."
+            exit 1
+        }
+      displayName: "Verify zkectl"
+
+    - powershell: |
+        Write-Host "===== kubectl ====="
+        kubectl version --client
+      continueOnError: true
+      displayName: "Verify kubectl"
+
+    # Uncomment only after basic verification succeeds
+
+    # - powershell: |
+    #     .\tools\zkectl\zkectl.exe login server `
+    #         -u "$(KUBE_USER)" `
+    #         -p "$(KUBE_PASSWORD)"
+    #   displayName: "Login to Kubernetes"
+
+    # - powershell: |
+    #     kubectl config current-context
+    #     kubectl get ns
+    #   displayName: "Verify Kubernetes Login"
+
+    # - powershell: |
+    #     python scripts\verify.py
+    #   displayName: "Run Python Verification"
