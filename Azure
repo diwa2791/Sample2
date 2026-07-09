@@ -1,14 +1,9 @@
-# -------------------------------------------------------------------
-# Validation Stage
-# -------------------------------------------------------------------
-
 - stage: Validation
   displayName: "Validation & HTML Report"
   dependsOn: Deploy
   condition: succeeded()
 
   jobs:
-
   - job: Validation
     displayName: "Collect Kubernetes Logs"
 
@@ -19,107 +14,22 @@
 
     - checkout: self
 
-    # -------------------------------------------------------------
-    # Download kubectl & zkectl
-    # -------------------------------------------------------------
+    - bash: |
+        chmod +x scripts/k8-login.sh
+        ./scripts/k8-login.sh
+      displayName: "Kubernetes Login"
 
     - bash: |
-        set -e
-
-        export BASD=$(Build.SourcesDirectory)
-
-        mkdir -p $BASD/bin
-        mkdir -p $BASD/.kube
-
-        export PATH=$BASD/bin:$PATH
-        export HOME=$BASD
-
-        echo "Downloading kubectl..."
-        curl -s $kubectl_bin -o $BASD/bin/kubectl
-        chmod +x $BASD/bin/kubectl
-
-        echo "Downloading zkectl..."
-        curl -s $zkectl_bin | tar -xz -C $BASD/bin
-        chmod +x $BASD/bin/zkectl
-
-        touch $BASD/.kube/config
-
-      displayName: "Download Kubernetes Tools"
-
-    # -------------------------------------------------------------
-    # Login
-    # -------------------------------------------------------------
-
-    - bash: |
-        set -e
-
-        export BASD=$(Build.SourcesDirectory)
-
-        export PATH=$BASD/bin:$PATH
-        export HOME=$BASD
-
-        zkectl login \
-            $server \
-            -s ${auth_endpoint%/auth} \
-            -i \
-            -u $username \
-            -p $password
-
-      displayName: "Login to Kubernetes"
-
-    # -------------------------------------------------------------
-    # Verify
-    # -------------------------------------------------------------
-
-    - bash: |
-        export BASD=$(Build.SourcesDirectory)
-
-        export PATH=$BASD/bin:$PATH
-        export HOME=$BASD
-
-        echo "Python Version"
-        python3 --version
-
-        echo "Kubectl Version"
-        kubectl version --client
-
-        echo "Current Context"
-        kubectl config current-context
-
-        echo "Namespaces"
-        kubectl get ns
-
-        echo "Pods"
-        kubectl get pods -A
-
+        python3 scripts/verify.py
       displayName: "Verify Environment"
 
-    # -------------------------------------------------------------
-    # Collect Logs
-    # -------------------------------------------------------------
-
     - bash: |
-        export BASD=$(Build.SourcesDirectory)
-
-        export PATH=$BASD/bin:$PATH
-        export HOME=$BASD
-
         python3 scripts/collect_logs.py
-
       displayName: "Collect Kubernetes Logs"
-
-    # -------------------------------------------------------------
-    # Generate HTML
-    # -------------------------------------------------------------
 
     - bash: |
         python3 scripts/report.py
-
       displayName: "Generate HTML Report"
-
-    # -------------------------------------------------------------
-    # Publish Report
-    # -------------------------------------------------------------
 
     - publish: reports
       artifact: ValidationReport
