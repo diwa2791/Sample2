@@ -1,0 +1,18 @@
+import subprocess
+import sys
+
+print("=" * 60)
+print("Python is working")
+print("=" * 60)
+
+result = subprocess.run(
+    ["kubectl", "get", "pods", "-A"],
+    capture_output=True,
+    text=True
+)
+
+print(result.stdout)
+
+if result.returncode != 0:
+    print(result.stderr)
+    sys.exit(result.returncode)
