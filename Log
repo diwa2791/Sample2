@@ -1,0 +1,41 @@
+#!/bin/bash
+set -e
+
+export BASD=$(pwd)
+
+mkdir -p $BASD/bin
+mkdir -p $BASD/.kube
+
+export PATH=$BASD/bin:$PATH
+export HOME=$BASD
+
+echo "Downloading kubectl..."
+
+curl -s $kubectl_bin -o $BASD/bin/kubectl
+
+chmod +x $BASD/bin/kubectl
+
+echo "Downloading zkectl..."
+
+curl -s $zkectl_bin | tar -xz -C $BASD/bin
+
+chmod +x $BASD/bin/zkectl
+
+touch $BASD/.kube/config
+
+echo "Logging into Kubernetes..."
+
+zkectl login \
+    $server \
+    -s ${auth_endpoint%/auth} \
+    -i \
+    -u $username \
+    -p $password
+
+echo "Login Successful"
+
+kubectl version
+
+kubectl config current-context
+
+kubectl get ns
